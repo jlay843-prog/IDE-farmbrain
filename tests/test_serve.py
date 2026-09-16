@@ -40,6 +40,35 @@ def test_log_endpoint_reads_jsonl(tmp_path, monkeypatch):
     assert "sessions.jsonl" in data["path"]
 
 
+def test_edit_endpoint_includes_change_list(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "forge.serve.run_edit",
+        lambda prompt, files, **kwargs: {
+            "ok": True,
+            "kind": "edit",
+            "tier": "code",
+            "model": "qwen3-coder:30b",
+            "backend": "amd",
+            "gpu": "GTT",
+            "text": "--- a/a.py\n+++ b/a.py\n@@ -1 +1,2 @@\n-a\n+b\n+c\n--- /dev/null\n+++ b/b.py\n@@ -0,0 +1 @@\n+x\n",
+            "files": files or [],
+            "changes": [
+                {"path": "a.py", "kind": "modified", "new": False, "delete": False, "hunks": 1, "added": 2, "deleted": 1},
+                {"path": "b.py", "kind": "added", "new": True, "delete": False, "hunks": 1, "added": 1, "deleted": 0},
+            ],
+            "applied": False,
+            "changed": [],
+            "protected": False,
+        },
+    )
+    status, payload, _ = handle_api("POST", "/api/edit", {}, {"prompt": "two files", "files": ["a.py"]})
+    assert status == 200
+    data = json.loads(payload)
+    assert [row["path"] for row in data["changes"]] == ["a.py", "b.py"]
+    assert data["changes"][1]["kind"] == "added"
+
+
 def test_desk_ask_appends_session_log(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     monkeypatch.setattr(

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from forge.edit import apply_diff, extract_diff, parse_unified_diff
+from forge.edit import apply_diff, change_list, extract_diff, format_change_list, parse_unified_diff
 
 
 DIFF = """--- a/hello.py
@@ -10,6 +10,24 @@ DIFF = """--- a/hello.py
 -    return "hi"
 +    return "hello"
 +
+"""
+
+MULTI = """--- a/hello.py
++++ b/hello.py
+@@ -1,3 +1,4 @@
+ def hello():
+-    return "hi"
++    return "hello"
++
+--- /dev/null
++++ b/new.txt
+@@ -0,0 +1,2 @@
++alpha
++beta
+--- a/gone.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-bye
 """
 
 
@@ -36,22 +54,63 @@ def test_new_file(tmp_path: Path):
     # parser uses +++ path
     patches = parse_unified_diff(diff.replace("a/dev/null", "/dev/null"))
     assert patches
-    apply_diff(tmp_path, """--- /dev/null
+    apply_diff(
+        tmp_path,
+        """--- /dev/null
 +++ b/new.txt
 @@ -0,0 +1,2 @@
 +alpha
 +beta
-""")
+""",
+    )
     assert (tmp_path / "new.txt").read_text(encoding="utf-8").splitlines()[:2] == ["alpha", "beta"]
 
 
 def test_rejects_outside_workspace(tmp_path: Path):
     try:
-        apply_diff(tmp_path, """--- a/../escape.txt
+        apply_diff(
+            tmp_path,
+            """--- a/../escape.txt
 +++ b/../escape.txt
 @@ -0,0 +1 @@
 +nope
-""")
+""",
+        )
     except ValueError:
         return
     raise AssertionError("expected path escape to fail")
+
+
+def test_change_list_one_file():
+    rows = change_list(DIFF)
+    assert len(rows) == 1
+    assert rows[0]["path"] == "hello.py"
+    assert rows[0]["kind"] == "modified"
+    assert rows[0]["added"] == 2
+    assert rows[0]["deleted"] == 1
+    assert rows[0]["hunks"] == 1
+
+
+def test_change_list_multiple_files():
+    rows = change_list(MULTI)
+    paths = [row["path"] for row in rows]
+    assert paths == ["hello.py", "new.txt", "gone.txt"]
+    kinds = {row["path"]: row["kind"] for row in rows}
+    assert kinds["hello.py"] == "modified"
+    assert kinds["new.txt"] == "added"
+    assert kinds["gone.txt"] == "deleted"
+    assert change_list("Sure, I can help with that.") == []
+    text = format_change_list(rows)
+    assert "changes (3 files):" in text
+    assert "A new.txt" in text
+    assert "D gone.txt" in text
+
+
+def test_apply_multi_file(tmp_path: Path):
+    (tmp_path / "hello.py").write_text('def hello():\n    return "hi"\n', encoding="utf-8")
+    (tmp_path / "gone.txt").write_text("bye\n", encoding="utf-8")
+    changed = apply_diff(tmp_path, MULTI)
+    assert changed == ["hello.py", "new.txt", "gone.txt"]
+    assert 'return "hello"' in (tmp_path / "hello.py").read_text(encoding="utf-8")
+    assert (tmp_path / "new.txt").read_text(encoding="utf-8").splitlines()[:2] == ["alpha", "beta"]
+    assert not (tmp_path / "gone.txt").exists()

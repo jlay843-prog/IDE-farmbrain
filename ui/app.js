@@ -7,7 +7,9 @@ const state = {
   searchQuery: "",
   searchTimer: 0,
   selectedFile: "",
+  selectedFiles: [],
   lastDiff: "",
+  changes: [],
   gitDiff: false,
   git: { repo: false, files: [], summary: "", branch: "", remotes: [] },
   gitMessage: "",
@@ -298,27 +300,45 @@ function renderTree(entries) {
     empty.className = "status-line";
     empty.textContent = searching ? "No paths match." : "This folder is empty.";
     box.appendChild(empty);
+    renderFilePicks();
     return;
   }
   for (const entry of rows) {
+    if (entry.kind === "dir") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "file";
+      btn.textContent = "▸ " + (searching ? entry.path : entry.name);
+      btn.addEventListener("click", () => goDir(entry.path));
+      box.appendChild(btn);
+      continue;
+    }
+    const row = document.createElement("div");
+    row.className = "file-row" + (state.selectedFiles.includes(entry.path) ? " picked" : "") + (entry.path === state.selectedFile ? " active" : "");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = state.selectedFiles.includes(entry.path);
+    cb.title = "Name this file for Ask/Edit";
+    cb.addEventListener("change", (e) => {
+      e.stopPropagation();
+      setFilePicked(entry.path, cb.checked);
+    });
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "file" + (entry.path === state.selectedFile ? " active" : "");
-    const label = (entry.kind === "dir" ? "▸ " : "") + (searching ? entry.path : entry.name);
-    btn.textContent = label;
-    if (searching && entry.kind === "file") {
-      btn.title = entry.path;
-    }
-    btn.addEventListener("click", async () => {
-      if (entry.kind === "dir") {
-        await goDir(entry.path);
-        return;
-      }
+    btn.className = "file";
+    btn.textContent = searching ? entry.path : entry.name;
+    if (searching) btn.title = entry.path;
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      setFilePicked(entry.path, true);
       state.selectedFile = entry.path;
       await openFile(entry.path);
     });
-    box.appendChild(btn);
+    row.appendChild(cb);
+    row.appendChild(btn);
+    box.appendChild(row);
   }
+  renderFilePicks();
 }
 
 async function fetchDir(rel) {
@@ -420,23 +440,19 @@ async function refreshGit() {
 
 function renderGitDiff(text, path) {
   state.gitDiff = true;
+  renderChangeList([]);
   const wrap = document.createElement("div");
   const label = document.createElement("p");
   label.className = "git-label";
   label.textContent = path ? `Git · ${path}` : "Git · workspace diff";
   const pre = document.createElement("pre");
   pre.className = "diff";
-  pre.innerHTML = String(text || "")
-    .split("\n")
-    .map((line) => {
-      const cls = line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "del" : "";
-      return `<span class="${cls}">${escapeHtml(line)}</span>`;
-    })
-    .join("\n");
+  pre.innerHTML = colorDiff(text);
   wrap.appendChild(label);
   wrap.appendChild(pre);
-  $("#diff").innerHTML = "";
-  $("#diff").appendChild(wrap);
+  const body = $("#diffBody") || $("#diff");
+  body.innerHTML = "";
+  body.appendChild(wrap);
   setTab("diff");
 }
 
@@ -548,20 +564,152 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;");
 }
 
-function renderDiff(text) {
-  state.lastDiff = text;
-  state.gitDiff = false;
-  const pre = document.createElement("pre");
-  pre.className = "diff";
-  pre.innerHTML = text
+function colorDiff(text) {
+  return String(text || "")
     .split("\n")
     .map((line) => {
       const cls = line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "del" : "";
       return `<span class="${cls}">${escapeHtml(line)}</span>`;
     })
     .join("\n");
-  $("#diff").innerHTML = "";
-  $("#diff").appendChild(pre);
+}
+
+function parseChangesFromDiff(text) {
+  const rows = [];
+  let current = null;
+  const flush = () => {
+    if (current && current.path && current.path !== "/dev/null") rows.push(current);
+  };
+  for (const line of String(text || "").split("\n")) {
+    if (line.startsWith("--- ")) {
+      flush();
+      let old = line.slice(4).trim();
+      if (old.startsWith("a/")) old = old.slice(2);
+      current = {
+        path: "",
+        kind: old === "/dev/null" ? "added" : "modified",
+        new: old === "/dev/null",
+        delete: false,
+        hunks: 0,
+        added: 0,
+        deleted: 0,
+        _old: old,
+      };
+      continue;
+    }
+    if (line.startsWith("+++ ") && current) {
+      let neu = line.slice(4).trim();
+      if (neu.startsWith("b/")) neu = neu.slice(2);
+      current.delete = neu === "/dev/null";
+      current.path = (current.delete ? current._old : neu).replace(/\\/g, "/");
+      current.new = current._old === "/dev/null";
+      current.kind = current.delete ? "deleted" : current.new ? "added" : "modified";
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith("@@")) current.hunks += 1;
+    else if (line.startsWith("+") && !line.startsWith("+++")) current.added += 1;
+    else if (line.startsWith("-") && !line.startsWith("---")) current.deleted += 1;
+  }
+  flush();
+  return rows;
+}
+
+function splitDiffFiles(text) {
+  const chunks = [];
+  let cur = null;
+  for (const line of String(text || "").split("\n")) {
+    if (line.startsWith("--- ")) {
+      if (cur) chunks.push(cur);
+      cur = { path: "", lines: [line] };
+      continue;
+    }
+    if (!cur) {
+      if (!chunks.length) chunks.push({ path: "", lines: [] });
+      chunks[chunks.length - 1].lines.push(line);
+      continue;
+    }
+    cur.lines.push(line);
+    if (line.startsWith("+++ ")) {
+      let neu = line.slice(4).trim();
+      if (neu.startsWith("b/")) neu = neu.slice(2);
+      if (neu === "/dev/null") {
+        let old = (cur.lines[0] || "").slice(4).trim();
+        if (old.startsWith("a/")) old = old.slice(2);
+        cur.path = old;
+      } else {
+        cur.path = neu.replace(/\\/g, "/");
+      }
+    }
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
+function diffFileId(path) {
+  return "diff-file-" + encodeURIComponent(path || "").replace(/%/g, "_");
+}
+
+function renderChangeList(rows) {
+  const box = $("#changeList");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!rows || !rows.length) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const cap = document.createElement("p");
+  cap.className = "status-line";
+  cap.textContent = rows.length === 1 ? "1 file in this edit" : `${rows.length} files in this edit`;
+  box.appendChild(cap);
+  for (const row of rows) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "change-file " + (row.kind || "");
+    const mark = row.delete || row.kind === "deleted" ? "D" : row.new || row.kind === "added" ? "A" : "M";
+    btn.innerHTML = `<span class="mark">${escapeHtml(mark)}</span><span class="name">${escapeHtml(row.path)}</span><span class="stat">+${row.added || 0} −${row.deleted || 0}</span>`;
+    btn.addEventListener("click", () => {
+      const el = document.getElementById(diffFileId(row.path));
+      if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+    box.appendChild(btn);
+  }
+}
+
+function renderDiff(text, changes) {
+  state.lastDiff = text;
+  state.gitDiff = false;
+  const rows = changes && changes.length ? changes : parseChangesFromDiff(text);
+  state.changes = rows;
+  renderChangeList(rows);
+  const body = $("#diffBody") || $("#diff");
+  body.innerHTML = "";
+  const chunks = splitDiffFiles(text);
+  if (!chunks.length) {
+    const pre = document.createElement("pre");
+    pre.className = "diff";
+    pre.innerHTML = colorDiff(text);
+    body.appendChild(pre);
+    setTab("diff");
+    return;
+  }
+  for (const chunk of chunks) {
+    const section = document.createElement("section");
+    section.className = "diff-file";
+    if (chunk.path) section.id = diffFileId(chunk.path);
+    if (chunk.path) {
+      const label = document.createElement("p");
+      label.className = "git-label";
+      label.textContent = chunk.path;
+      section.appendChild(label);
+    }
+    const pre = document.createElement("pre");
+    pre.className = "diff";
+    pre.innerHTML = colorDiff(chunk.lines.join("\n"));
+    section.appendChild(pre);
+    body.appendChild(section);
+  }
   setTab("diff");
 }
 
@@ -705,6 +853,8 @@ async function refreshAll() {
   if (wsChanged) {
     state.cwd = "";
     state.searchQuery = "";
+    state.selectedFile = "";
+    state.selectedFiles = [];
     const input = $("#fileSearch");
     if (input) input.value = "";
   }
@@ -774,7 +924,29 @@ async function refreshLog() {
   }
 }
 
+function setFilePicked(path, on) {
+  const set = new Set(state.selectedFiles);
+  if (on) set.add(path);
+  else set.delete(path);
+  state.selectedFiles = [...set];
+  if (on) state.selectedFile = path;
+  else if (state.selectedFile === path) state.selectedFile = state.selectedFiles[0] || "";
+  renderTree();
+}
+
+function renderFilePicks() {
+  const el = $("#filePicks");
+  if (!el) return;
+  const files = selectedFiles();
+  if (!files.length) {
+    el.textContent = "No files named yet. Check files to send them with Ask/Edit.";
+    return;
+  }
+  el.textContent = files.length === 1 ? `Named: ${files[0]}` : `Named (${files.length}): ${files.join(", ")}`;
+}
+
 function selectedFiles() {
+  if (state.selectedFiles.length) return [...state.selectedFiles];
   return state.selectedFile ? [state.selectedFile] : [];
 }
 
@@ -830,8 +1002,9 @@ async function send(kind) {
   const metaEl = bubble.querySelector(".meta");
   setBusy(true);
   toast(kind === "edit" ? "Streaming coder diff…" : "Streaming local Qwen…");
-  let text = "";
-  try {
+    let text = "";
+    let changes = null;
+    try {
     const res = await fetch(kind === "edit" ? "/api/edit/stream" : "/api/ask/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -859,12 +1032,13 @@ async function send(kind) {
       }
       if (ev.error) throw new Error(ev.error);
       if (ev.done && ev.text && !text) text = ev.text;
+      if (ev.done && ev.changes) changes = ev.changes;
       if (ev.done && ev.model && metaEl) {
         metaEl.textContent = `${ev.model} · ${ev.backend || ""} · ${ev.gpu || ""}`;
       }
     });
     if (bodyEl) bodyEl.textContent = text;
-    if (kind === "edit") renderDiff(text);
+    if (kind === "edit") renderDiff(text, changes);
     toast(metaEl ? metaEl.textContent : "done");
     await refreshLog();
   } catch (err) {
@@ -920,7 +1094,7 @@ async function sendCompare(kind) {
         `${row.index}) ${row.ok ? "ok" : "fail"} · ${row.model} · ${row.backend || ""}`
       );
     }
-    if (kind === "edit" && data.text) renderDiff(data.text);
+    if (kind === "edit" && data.text) renderDiff(data.text, data.changes);
     toast(`Winner: ${judge.pick_model || ""} — not applied`);
     await refreshLog();
   } catch (err) {
@@ -960,7 +1134,7 @@ async function runRecipe(id) {
     });
     if (data.text) {
       addMessage("assistant", data.text, `${data.model || id} · recipe`);
-      if (data.kind === "edit") renderDiff(data.text);
+      if (data.kind === "edit") renderDiff(data.text, data.changes);
       await refreshLog();
     } else {
       toast(data.url || data.path || id);
@@ -1001,7 +1175,10 @@ function bind() {
   $("#rejectBtn").addEventListener("click", () => {
     state.lastDiff = "";
     state.gitDiff = false;
-    $("#diff").innerHTML = "";
+    state.changes = [];
+    renderChangeList([]);
+    const body = $("#diffBody");
+    if (body) body.innerHTML = "";
     setTab("session");
   });
   const gitMessage = $("#gitMessage");

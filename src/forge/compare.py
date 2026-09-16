@@ -6,7 +6,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from forge.llm import chat
+from forge.edit import change_list
 from forge.probe import picker_snapshot
 from forge.session import SessionError, active_session, run_ask, run_edit
 from forge.state import load_state
@@ -229,6 +229,7 @@ def run_compare(
         "judge": judge,
         "model": judge.get("pick_model"),
         "text": judge.get("pick_text") or "",
+        "changes": change_list(judge.get("pick_text") or "") if kind == "edit" else [],
         "backend": judge.get("backend"),
         "gpu": judge.get("gpu"),
         "tier": kind,

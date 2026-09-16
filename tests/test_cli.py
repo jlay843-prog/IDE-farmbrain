@@ -163,3 +163,49 @@ def test_desk_ui_has_git_pane_and_no_push():
     assert "/api/git/diff" in js
     assert "git push" not in js.lower()
     assert "pull request" not in js.lower()
+
+
+def test_edit_prints_multi_file_change_list(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr("forge.cli.sys.stdin.isatty", lambda: False)
+
+    def fake_edit(prompt, files, **kwargs):
+        if kwargs.get("on_begin"):
+            kwargs["on_begin"]({"model": "qwen3-coder:30b", "backend": "amd", "gpu": "GTT"})
+        if kwargs.get("on_delta"):
+            kwargs["on_delta"]("--- a/a.py\n")
+        return {
+            "ok": True,
+            "kind": "edit",
+            "tier": "code",
+            "model": "qwen3-coder:30b",
+            "backend": "amd",
+            "gpu": "GTT",
+            "text": "--- a/a.py\n+++ b/a.py\n",
+            "files": files or [],
+            "changes": [
+                {"path": "a.py", "kind": "modified", "new": False, "delete": False, "hunks": 1, "added": 2, "deleted": 1},
+                {"path": "b.py", "kind": "added", "new": True, "delete": False, "hunks": 1, "added": 3, "deleted": 0},
+            ],
+            "applied": False,
+            "changed": [],
+            "protected": False,
+        }
+
+    monkeypatch.setattr("forge.cli.run_edit", fake_edit)
+    assert main(["edit", "touch two files", "--file", "a.py", "--file", "b.py"]) == 0
+    out = capsys.readouterr().out
+    assert "changes (2 files):" in out
+    assert "M a.py" in out
+    assert "A b.py" in out
+    assert "diff not applied" in out
+
+
+def test_desk_ui_has_change_list():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    assert "renderChangeList" in js
+    assert "selectedFiles" in js
+    assert 'id="changeList"' in html
+    assert "checkbox" in js

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from forge import __version__
-from forge.edit import apply_diff
+from forge.edit import apply_diff, format_change_list
 from forge.hosts import TIERS, backend_for_tier
 from forge.io import configure_stdio, out, write_chunk
 from forge.launch import launch
@@ -249,6 +249,10 @@ def cmd_edit(args: argparse.Namespace) -> int:
         return 1
     write_chunk("\n")
     log_turn("edit", result, args.prompt)
+    changes = result.get("changes") or []
+    if changes:
+        out("")
+        out(format_change_list(changes))
     if result.get("protected"):
         out("")
         out(PROTECTED_HINT)

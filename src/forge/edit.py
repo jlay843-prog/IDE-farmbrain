@@ -62,11 +62,61 @@ def parse_unified_diff(text: str) -> list[FilePatch]:
             current.path = current.old_path if current.is_delete else new
             if current.path in {"/dev/null", ""}:
                 current.path = current.old_path
+            current.path = current.path.replace("\\", "/")
             patches.append(current)
             continue
         if current is not None:
             current.lines.append(raw)
     return [p for p in patches if p.path]
+
+
+def _line_stats(lines: list[str]) -> tuple[int, int, int]:
+    hunks = added = deleted = 0
+    for line in lines:
+        if line.startswith("@@"):
+            hunks += 1
+        elif line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            deleted += 1
+    return hunks, added, deleted
+
+
+def change_list(text: str) -> list[dict]:
+    """Paths a single edit would touch. Empty when the reply is not a unified diff."""
+    rows: list[dict] = []
+    for patch in parse_unified_diff(text):
+        hunks, added, deleted = _line_stats(patch.lines)
+        if patch.is_delete:
+            kind = "deleted"
+        elif patch.is_new:
+            kind = "added"
+        else:
+            kind = "modified"
+        rows.append(
+            {
+                "path": patch.path,
+                "kind": kind,
+                "new": patch.is_new,
+                "delete": patch.is_delete,
+                "hunks": hunks,
+                "added": added,
+                "deleted": deleted,
+            }
+        )
+    return rows
+
+
+def format_change_list(rows: list[dict]) -> str:
+    if not rows:
+        return "no file hunks in this reply"
+    lines = [f"changes ({len(rows)} file{'s' if len(rows) != 1 else ''}):"]
+    for row in rows:
+        mark = "D" if row.get("delete") else "A" if row.get("new") else "M"
+        hunks = int(row.get("hunks") or 0)
+        hunk_bit = f"{hunks} hunk" if hunks == 1 else f"{hunks} hunks"
+        lines.append(f"  {mark} {row.get('path')}  +{row.get('added', 0)} -{row.get('deleted', 0)}  {hunk_bit}")
+    return "\n".join(lines)
 
 
 def _apply_hunks(original: str, patch_lines: list[str]) -> str:
@@ -140,9 +190,11 @@ def apply_diff(workspace: Path, diff_text: str) -> list[str]:
 
 EDIT_SYSTEM = """You are Forge, a local coding assistant on this farm LAN.
 Return ONLY a unified diff that applies to the workspace (--- a/ +++ b/ @@ hunks).
+One reply may change several named files: emit a --- / +++ pair per file.
 Paths are relative to the workspace root. Do not open Ollama to the internet.
 Do not wrap the diff in extra commentary. If you must explain, put it after the diff.
 Never propose changes outside the named files unless the user asked to create a new file.
+Never dump the whole repository.
 """
 
 

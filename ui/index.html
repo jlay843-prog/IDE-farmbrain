@@ -36,6 +36,7 @@
             <div id="projects"></div>
             <h2>Files</h2>
             <input id="fileSearch" type="search" placeholder="Search paths…" autocomplete="off" spellcheck="false" aria-label="Search workspace paths" />
+            <p id="filePicks" class="status-line">No files named yet. Check files to send them with Ask/Edit.</p>
             <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
             <div id="files"></div>
             <h2>Git</h2>
@@ -66,7 +67,10 @@
           <div class="center-body">
             <div id="session"></div>
             <div id="log"></div>
-            <div id="diff"></div>
+            <div id="diff">
+              <div id="changeList" class="change-list" hidden></div>
+              <div id="diffBody"></div>
+            </div>
             <div id="editor"></div>
           </div>
         </section>
@@ -82,7 +86,7 @@
           <div id="recipes" class="recipes"></div>
           <div id="comparePicks" class="compare-picks"></div>
           <div id="statusLine" class="status-line">Starting Forge…</div>
-          <textarea id="prompt" placeholder="Ask the local model. Ctrl+Enter to send. Select a file for context."></textarea>
+          <textarea id="prompt" placeholder="Ask the local model. Ctrl+Enter to send. Check one or more files to name them as context."></textarea>
         </div>
         <div class="actions">
           <button id="askBtn" class="btn primary">Ask</button>

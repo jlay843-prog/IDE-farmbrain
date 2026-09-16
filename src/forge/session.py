@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from forge.context import format_context, read_files
-from forge.edit import ASK_SYSTEM, EDIT_SYSTEM, apply_diff
+from forge.edit import ASK_SYSTEM, EDIT_SYSTEM, apply_diff, change_list
 from forge.llm import chat, iter_chat
 from forge.probe import resolve_session
 from forge.state import is_protected_workspace, load_state, workspace_path
@@ -140,6 +140,7 @@ def run_edit(
         "base": sess["base"],
         "text": reply["text"],
         "files": [f["path"] for f in named],
+        "changes": change_list(reply["text"]),
         "applied": False,
         "changed": [],
         "protected": is_protected_workspace(root),

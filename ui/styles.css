@@ -113,6 +113,43 @@ body {
 .file { display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--ink); padding: 5px 4px; cursor: pointer; font-family: var(--mono); font-size: 12px; }
 .file:hover, .file.active { color: var(--ember); }
 .file.up { color: var(--muted); }
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.file-row .file { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row input[type="checkbox"] { accent-color: var(--copper); flex: 0 0 auto; }
+.file-row.picked .file { color: var(--ember); }
+.file-row.active { background: #2a1d14; border-radius: 6px; }
+.change-list {
+  margin: 0 0 10px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+.change-file {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 8px;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  padding: 4px 2px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.change-file:hover { color: var(--ember); }
+.change-file .mark { flex: 0 0 1.2em; color: var(--warn); font-size: 11px; }
+.change-file.added .mark { color: var(--ok); }
+.change-file.deleted .mark { color: var(--down); }
+.change-file .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.change-file .stat { color: var(--muted); font-size: 11px; }
+.diff-file { margin: 0 0 14px; }
+.diff-file .git-label { position: sticky; top: 0; background: var(--panel); padding: 4px 0; }
 .file .path-hint { display: block; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #fileSearch {
   width: 100%;
