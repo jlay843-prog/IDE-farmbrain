@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forge</title>
+    <link rel="icon" href="/forge-icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="top">
+        <div class="brand">
+          <img src="/forge-icon.svg" alt="" />
+          <span>FORGE</span>
+        </div>
+        <div class="tiers">
+          <button class="tier" data-tier="code">AMD coder</button>
+          <button class="tier" data-tier="chat">CUDA chat</button>
+          <button class="tier" data-tier="burst">5090 burst</button>
+        </div>
+        <div id="chips" class="chips"></div>
+      </header>
+
+      <main class="work">
+        <section class="pane">
+          <h2>Project</h2>
+          <div class="scroll">
+            <button id="openBtn" class="btn primary">Open workspace</button>
+            <div id="projects"></div>
+            <h2>Files</h2>
+            <div id="files"></div>
+            <h2>Links</h2>
+            <div id="links"></div>
+          </div>
+        </section>
+
+        <section class="pane">
+          <h2>Session</h2>
+          <div class="center-tabs">
+            <button class="btn primary" data-tab="session">Chat</button>
+            <button class="btn" data-tab="diff">Diff</button>
+            <button class="btn" data-tab="file">File</button>
+            <button id="applyBtn" class="btn">Apply</button>
+            <button id="rejectBtn" class="btn">Reject</button>
+          </div>
+          <div class="center-body">
+            <div id="session"></div>
+            <div id="diff"></div>
+            <div id="editor"></div>
+          </div>
+        </section>
+
+        <section class="pane">
+          <h2>Mesh</h2>
+          <div id="mesh" class="scroll mesh"></div>
+        </section>
+      </main>
+
+      <footer class="composer">
+        <div>
+          <div id="recipes" class="recipes"></div>
+          <div id="statusLine" class="status-line">Starting Forge…</div>
+          <textarea id="prompt" placeholder="Ask the local model. Ctrl+Enter to send. Select a file for context."></textarea>
+        </div>
+        <div class="actions">
+          <button id="askBtn" class="btn primary">Ask</button>
+          <button id="editBtn" class="btn">Edit</button>
+        </div>
+      </footer>
+    </div>
+    <script src="/app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js" onerror="window.monacoFailed=true"></script>
+    <script>
+      try {
+        if (typeof require === "function" && require.config) {
+          require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" } });
+          require(["vs/editor/editor.main"], function () {
+            window.monacoReady = true;
+          });
+        }
+      } catch (err) {
+        window.monacoFailed = true;
+      }
+    </script>
+  </body>
+</html>
