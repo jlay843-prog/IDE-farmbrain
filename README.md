@@ -42,11 +42,15 @@ forge use chat --model qwen3.8:27b
 forge open C:\Users\jlay\Grok\forge
 forge ask "What does cli.py do?" --file src/forge/cli.py
 forge edit "Add a --quiet flag to status" --file src/forge/cli.py
+forge compare ask "What does cli.py do?" --file src/forge/cli.py
+forge compare edit "Add a --quiet flag" --file src/forge/cli.py --model qwen3-coder:30b --model qwen3.8:27b
 forge recipe list
 forge launch vault
 ```
 
 `forge ask` uses the **Ask** (EVO CUDA) model. `forge edit` uses the **Code** (EVO AMD) model. `forge use` with no args lists live `/api/tags` and, on a TTY, lets you pick a number. `forge models --pick` is the same picker. Burst/5090 stays blocked while Vast is live.
+
+`forge compare ask|edit` runs the same prompt on up to 3 live models, then **qwen3-coder:30b** on EVO AMD `:11437` picks a winner. Desk: check models under the composer, then **Compare ask** / **Compare edit**. The 30B pick is the WINNER line (not applied). farm-brain still needs QC confirm before Apply.
 
 Bare `forge` prints the pinned session and help. Turns are appended to `%LOCALAPPDATA%\Forge\sessions.jsonl`.
 

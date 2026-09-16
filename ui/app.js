@@ -6,6 +6,7 @@ const state = {
   lastDiff: "",
   tab: "session",
   editor: null,
+  compareModels: [],
 };
 
 async function api(path, opts = {}) {
@@ -105,6 +106,70 @@ function renderPicker(picker) {
     burst.disabled = blocked;
     burst.title = blocked ? "Blocked while Vast is live" : "Use the tower 5090 (burst only)";
     burst.classList.toggle("active", state.session.tier === "burst" && !blocked);
+  }
+  renderComparePicks(picker);
+}
+
+function renderComparePicks(picker) {
+  const box = $("#comparePicks");
+  if (!box) return;
+  const groups = (picker && picker.groups) || {};
+  const rows = []
+    .concat(groups.code || [], groups.chat || [], (picker && picker.vast_active ? [] : groups.burst || []))
+    .filter((r) => r && r.name);
+  const seen = new Set();
+  const unique = [];
+  for (const row of rows) {
+    const key = `${row.tier}:${row.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  if (!state.compareModels.length) {
+    const seed = [state.session.chat_model, state.session.code_model].filter(Boolean);
+    for (const name of seed) {
+      const hit = unique.find((r) => r.name === name);
+      if (hit && !state.compareModels.includes(`${hit.tier}:${hit.name}`)) {
+        state.compareModels.push(`${hit.tier}:${hit.name}`);
+      }
+    }
+    if (state.compareModels.length < 2) {
+      for (const row of unique) {
+        const key = `${row.tier}:${row.name}`;
+        if (!state.compareModels.includes(key)) state.compareModels.push(key);
+        if (state.compareModels.length >= 2) break;
+      }
+    }
+    state.compareModels = state.compareModels.slice(0, 3);
+  }
+  box.innerHTML = "";
+  const note = document.createElement("span");
+  note.className = "status-line";
+  note.textContent = "Compare (max 3):";
+  box.appendChild(note);
+  for (const row of unique) {
+    const key = `${row.tier}:${row.name}`;
+    const label = document.createElement("label");
+    label.className = "compare-pick";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = key;
+    cb.checked = state.compareModels.includes(key);
+    cb.addEventListener("change", () => {
+      if (cb.checked) {
+        if (state.compareModels.length >= 3) {
+          cb.checked = false;
+          toast("Compare allows at most 3 models.");
+          return;
+        }
+        state.compareModels.push(key);
+      } else {
+        state.compareModels = state.compareModels.filter((k) => k !== key);
+      }
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(` ${row.name}`));
+    box.appendChild(label);
   }
 }
 
@@ -440,8 +505,7 @@ async function send(kind) {
   if (!prompt) return;
   const files = selectedFiles();
   addMessage("user", prompt, files.length ? files.join(", ") : "no file context");
-  $("#askBtn").disabled = true;
-  $("#editBtn").disabled = true;
+  setBusy(true);
   toast(kind === "edit" ? "Asking coder for a diff…" : "Asking local Qwen…");
   try {
     const data = await api(kind === "edit" ? "/api/edit" : "/api/ask", {
@@ -461,8 +525,58 @@ async function send(kind) {
     addMessage("assistant", String(err.message || err), "error");
     toast(String(err.message || err));
   } finally {
-    $("#askBtn").disabled = false;
-    $("#editBtn").disabled = false;
+    setBusy(false);
+  }
+}
+
+function setBusy(busy) {
+  ["askBtn", "editBtn", "compareAskBtn", "compareEditBtn"].forEach((id) => {
+    const el = $("#" + id);
+    if (el) el.disabled = busy;
+  });
+}
+
+function selectedCompareModels() {
+  return (state.compareModels || []).slice(0, 3).map((key) => {
+    const [tier, ...rest] = key.split(":");
+    return { tier, model: rest.join(":") };
+  });
+}
+
+async function sendCompare(kind) {
+  const prompt = $("#prompt").value.trim();
+  if (!prompt) return;
+  const files = selectedFiles();
+  const models = selectedCompareModels();
+  if (models.length < 2) return toast("Pick at least two live models to compare.");
+  addMessage("user", prompt, `compare ${kind} · ${models.map((m) => m.model).join(", ")}`);
+  setBusy(true);
+  toast(`Comparing ${models.length} models; AMD 30B will judge…`);
+  try {
+    const data = await api("/api/compare", {
+      method: "POST",
+      body: JSON.stringify({ kind, prompt, files, models }),
+    });
+    const judge = data.judge || {};
+    addMessage(
+      "assistant",
+      `${judge.reason || ""}\n\n${data.text || ""}`,
+      `WINNER ${judge.winner} · ${judge.pick_model || data.model} · judged by ${judge.model || "qwen3-coder:30b"}`
+    );
+    for (const row of data.candidates || []) {
+      addMessage(
+        "assistant",
+        row.ok ? row.text || "" : row.error || "failed",
+        `${row.index}) ${row.ok ? "ok" : "fail"} · ${row.model} · ${row.backend || ""}`
+      );
+    }
+    if (kind === "edit" && data.text) renderDiff(data.text);
+    toast(`Winner: ${judge.pick_model || ""} — not applied`);
+  } catch (err) {
+    addMessage("assistant", String(err.message || err), "error");
+    toast(String(err.message || err));
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -527,6 +641,8 @@ function bind() {
   });
   $("#askBtn").addEventListener("click", () => send("ask"));
   $("#editBtn").addEventListener("click", () => send("edit"));
+  $("#compareAskBtn").addEventListener("click", () => sendCompare("ask"));
+  $("#compareEditBtn").addEventListener("click", () => sendCompare("edit"));
   $("#applyBtn").addEventListener("click", applyDiff);
   $("#rejectBtn").addEventListener("click", () => {
     state.lastDiff = "";

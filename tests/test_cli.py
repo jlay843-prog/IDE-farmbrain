@@ -7,7 +7,7 @@ from forge.log import log_turn
 def test_parser_has_week1_commands():
     parser = build_parser()
     names = parser._subparsers._group_actions[0].choices
-    for name in ("status", "models", "use", "open", "which", "ask", "edit", "serve", "projects", "recipe", "launch"):
+    for name in ("status", "models", "use", "open", "which", "ask", "edit", "compare", "serve", "projects", "recipe", "launch"):
         assert name in names
 
 

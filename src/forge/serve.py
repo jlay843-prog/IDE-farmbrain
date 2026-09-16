@@ -14,6 +14,7 @@ from forge.hosts import LINKS
 from forge.launch import launch, link_catalog
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
+from forge.compare import run_compare
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
     assign_project,
@@ -153,6 +154,15 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         if recipe["kind"] == "ask":
             return _json_bytes(run_ask(prompt, files))
         return _json_bytes(run_edit(prompt, files, apply=False))
+    if path == "/api/compare" and method == "POST":
+        return _json_bytes(
+            run_compare(
+                body.get("kind") or "ask",
+                body.get("prompt") or "",
+                body.get("files") or [],
+                body.get("models"),
+            )
+        )
     return _json_bytes({"ok": False, "error": "not found"}, 404)
 
 

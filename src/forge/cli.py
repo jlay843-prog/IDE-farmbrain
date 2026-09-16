@@ -22,6 +22,7 @@ from forge.probe import (
     status_snapshot,
 )
 from forge.recipes import RECIPES, get_recipe
+from forge.compare import run_compare
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
     PROTECTED_HINT,
@@ -299,6 +300,31 @@ def cmd_recipe(args: argparse.Namespace) -> int:
     return cmd_edit(ns)
 
 
+def cmd_compare(args: argparse.Namespace) -> int:
+    models = [m for m in (args.model or []) if m]
+    try:
+        result = run_compare(args.kind, args.prompt, args.file, models or None)
+    except (SessionError, FileNotFoundError, ValueError) as exc:
+        out(str(exc), err=True)
+        return 1
+    log_turn("compare", result, args.prompt)
+    if args.json:
+        return _print_json(result)
+    judge = result.get("judge") or {}
+    out(f"# compare {result['kind']}  judge {judge.get('model')} on {judge.get('gpu')}")
+    for row in result.get("candidates") or []:
+        mark = "ok" if row.get("ok") else "fail"
+        out(f"{row['index']}) [{mark}] {row.get('model')}  {row.get('backend') or '-'}  {row.get('error') or ''}")
+    out(f"WINNER: {judge.get('winner')} {judge.get('pick_model')}")
+    out(f"REASON: {judge.get('reason')}")
+    out("")
+    out(result.get("text") or "")
+    if result.get("kind") == "edit":
+        out("")
+        out("(winner not applied — use the desk Apply button, or re-run forge edit)")
+    return 0
+
+
 def cmd_launch(args: argparse.Namespace) -> int:
     result = launch(args.target, args.note or "")
     if args.json:
@@ -367,6 +393,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-y", "--yes", action="store_true")
     p.add_argument("--i-understand-qc", dest="i_understand_qc", action="store_true")
     p.set_defaults(func=cmd_edit)
+
+    p = sub.add_parser("compare", help="run ask/edit on up to 3 live models; AMD 30B judges")
+    p.add_argument("kind", choices=["ask", "edit"])
+    p.add_argument("prompt")
+    p.add_argument("--file", action="append", default=[])
+    p.add_argument("--model", action="append", default=[], help="live model name (repeat, max 3)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_compare)
 
     p = sub.add_parser("projects", help="list or assign project model/tier")
     p.add_argument("--json", action="store_true")
