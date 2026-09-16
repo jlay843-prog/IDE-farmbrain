@@ -134,8 +134,12 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
             raise ValueError("no workspace")
         if is_protected_workspace(root) and not body.get("confirm_protected"):
             raise SessionError("farm-brain apply requires confirm_protected")
-        changed = apply_diff(root, body["diff"])
-        result = {"ok": True, "kind": "apply", "changed": changed, "applied": True, "files": []}
+        hunks = body.get("hunks")
+        if hunks is not None and not isinstance(hunks, list):
+            raise ValueError("hunks must be a list of ids")
+        ids = [int(x) for x in hunks] if hunks is not None else None
+        changed = apply_diff(root, body["diff"], ids)
+        result = {"ok": True, "kind": "apply", "changed": changed, "applied": True, "files": [], "hunks": ids}
         log_turn("apply", result, "")
         return _json_bytes(result)
     if path == "/api/projects" and method == "GET":

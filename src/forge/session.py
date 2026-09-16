@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from forge.context import format_context, read_files
-from forge.edit import ASK_SYSTEM, EDIT_SYSTEM, apply_diff, change_list
+from forge.edit import ASK_SYSTEM, EDIT_SYSTEM, apply_diff, change_list, hunk_list
 from forge.llm import chat, iter_chat
 from forge.probe import resolve_session
 from forge.state import is_protected_workspace, load_state, workspace_path
@@ -223,6 +223,7 @@ def run_edit(
         "text": reply["text"],
         "files": [f["path"] for f in named],
         "changes": change_list(reply["text"]),
+        "hunks": hunk_list(reply["text"]),
         "tools": reply.get("tools") or [],
         "applied": False,
         "changed": [],

@@ -202,6 +202,12 @@ def test_edit_prints_multi_file_change_list(tmp_path, monkeypatch, capsys):
     assert "diff not applied" in out
 
 
+def test_parser_edit_has_hunk_flag():
+    parser = build_parser()
+    args = parser.parse_args(["edit", "x", "--hunk", "0", "--hunk", "2"])
+    assert args.hunk == [0, 2]
+
+
 def test_desk_ui_has_change_list():
     root = Path(__file__).resolve().parents[1]
     js = (root / "ui" / "app.js").read_text(encoding="utf-8")
@@ -210,3 +216,6 @@ def test_desk_ui_has_change_list():
     assert "selectedFiles" in js
     assert 'id="changeList"' in html
     assert "checkbox" in js
+    assert "Apply hunk" in js
+    assert "Reject hunk" in js
+    assert "hunks" in js

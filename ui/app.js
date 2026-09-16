@@ -10,6 +10,8 @@ const state = {
   selectedFiles: [],
   lastDiff: "",
   changes: [],
+  hunks: [],
+  hunkStatus: {},
   gitDiff: false,
   git: { repo: false, files: [], summary: "", branch: "", remotes: [] },
   gitMessage: "",
@@ -677,16 +679,95 @@ function renderChangeList(rows) {
   }
 }
 
-function renderDiff(text, changes) {
+function parseHunksFromDiff(text) {
+  const rows = [];
+  let hid = 0;
+  let path = "";
+  let isNew = false;
+  let isDelete = false;
+  let block = null;
+  const flush = () => {
+    if (!block) return;
+    const added = block.lines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
+    const deleted = block.lines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
+    rows.push({
+      id: hid++,
+      path,
+      header: block.header,
+      added,
+      deleted,
+      lines: block.lines,
+      new: isNew,
+      delete: isDelete,
+      kind: isDelete ? "deleted" : isNew ? "added" : "modified",
+    });
+    block = null;
+  };
+  for (const line of String(text || "").split("\n")) {
+    if (line.startsWith("--- ")) {
+      flush();
+      let old = line.slice(4).trim();
+      if (old.startsWith("a/")) old = old.slice(2);
+      isNew = old === "/dev/null";
+      isDelete = false;
+      path = old.replace(/\\/g, "/");
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      let neu = line.slice(4).trim();
+      if (neu.startsWith("b/")) neu = neu.slice(2);
+      isDelete = neu === "/dev/null";
+      if (!isDelete) path = neu.replace(/\\/g, "/");
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      flush();
+      block = { header: line, lines: [line] };
+      continue;
+    }
+    if (block) block.lines.push(line);
+  }
+  flush();
+  return rows;
+}
+
+function pendingHunkIds() {
+  return (state.hunks || [])
+    .filter((h) => (state.hunkStatus[h.id] || "pending") === "pending")
+    .map((h) => h.id);
+}
+
+function markHunk(id, status) {
+  state.hunkStatus[id] = status;
+  const el = document.querySelector(`[data-hunk="${id}"]`);
+  if (!el) return;
+  el.classList.toggle("applied", status === "applied");
+  el.classList.toggle("rejected", status === "rejected");
+  const note = el.querySelector(".hunk-state");
+  if (note) note.textContent = status;
+  el.querySelectorAll("button").forEach((btn) => {
+    btn.disabled = status !== "pending";
+  });
+}
+
+function renderDiff(text, changes, hunks) {
   state.lastDiff = text;
   state.gitDiff = false;
   const rows = changes && changes.length ? changes : parseChangesFromDiff(text);
   state.changes = rows;
+  const parsed = parseHunksFromDiff(text);
+  const meta = hunks && hunks.length ? hunks : parsed;
+  const byId = new Map(parsed.map((h) => [h.id, h]));
+  state.hunks = meta.map((h, i) => {
+    const id = h.id == null ? i : h.id;
+    const extra = byId.get(id) || parsed[i] || {};
+    return { ...extra, ...h, id, lines: extra.lines || h.lines || [] };
+  });
+  state.hunkStatus = {};
   renderChangeList(rows);
   const body = $("#diffBody") || $("#diff");
   body.innerHTML = "";
-  const chunks = splitDiffFiles(text);
-  if (!chunks.length) {
+  if (!state.hunks.length) {
     const pre = document.createElement("pre");
     pre.className = "diff";
     pre.innerHTML = colorDiff(text);
@@ -694,21 +775,60 @@ function renderDiff(text, changes) {
     setTab("diff");
     return;
   }
-  for (const chunk of chunks) {
-    const section = document.createElement("section");
-    section.className = "diff-file";
-    if (chunk.path) section.id = diffFileId(chunk.path);
-    if (chunk.path) {
-      const label = document.createElement("p");
-      label.className = "git-label";
-      label.textContent = chunk.path;
-      section.appendChild(label);
+  const hint = document.createElement("p");
+  hint.className = "status-line";
+  hint.textContent = "Apply or reject each hunk. Apply in the header writes remaining hunks.";
+  body.appendChild(hint);
+  let currentPath = null;
+  let section = null;
+  for (const hunk of state.hunks) {
+    if (hunk.path !== currentPath) {
+      currentPath = hunk.path;
+      section = document.createElement("section");
+      section.className = "diff-file";
+      if (hunk.path) section.id = diffFileId(hunk.path);
+      if (hunk.path) {
+        const label = document.createElement("p");
+        label.className = "git-label";
+        label.textContent = hunk.path;
+        section.appendChild(label);
+      }
+      body.appendChild(section);
     }
+    const wrap = document.createElement("div");
+    wrap.className = "hunk";
+    wrap.dataset.hunk = String(hunk.id);
+    const bar = document.createElement("div");
+    bar.className = "hunk-bar";
+    const title = document.createElement("span");
+    title.className = "hunk-title";
+    title.textContent = `#${hunk.id} ${hunk.header || ""}  +${hunk.added || 0} −${hunk.deleted || 0}`;
+    const stateEl = document.createElement("span");
+    stateEl.className = "hunk-state";
+    stateEl.textContent = "pending";
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "btn primary";
+    applyBtn.textContent = "Apply hunk";
+    applyBtn.addEventListener("click", () => applyHunks([hunk.id], true));
+    const rejectBtn = document.createElement("button");
+    rejectBtn.type = "button";
+    rejectBtn.className = "btn";
+    rejectBtn.textContent = "Reject hunk";
+    rejectBtn.addEventListener("click", () => {
+      markHunk(hunk.id, "rejected");
+      toast(`Rejected hunk ${hunk.id} (${hunk.path})`);
+    });
+    bar.appendChild(title);
+    bar.appendChild(stateEl);
+    bar.appendChild(applyBtn);
+    bar.appendChild(rejectBtn);
     const pre = document.createElement("pre");
     pre.className = "diff";
-    pre.innerHTML = colorDiff(chunk.lines.join("\n"));
-    section.appendChild(pre);
-    body.appendChild(section);
+    pre.innerHTML = colorDiff((hunk.lines || []).join("\n"));
+    wrap.appendChild(bar);
+    wrap.appendChild(pre);
+    section.appendChild(wrap);
   }
   setTab("diff");
 }
@@ -1004,6 +1124,7 @@ async function send(kind) {
   toast(kind === "edit" ? "Streaming coder diff…" : "Streaming local Qwen…");
     let text = "";
     let changes = null;
+    let hunks = null;
     try {
     const res = await fetch(kind === "edit" ? "/api/edit/stream" : "/api/ask/stream", {
       method: "POST",
@@ -1045,12 +1166,13 @@ async function send(kind) {
       if (ev.error) throw new Error(ev.error);
       if (ev.done && ev.text && !text) text = ev.text;
       if (ev.done && ev.changes) changes = ev.changes;
+      if (ev.done && ev.hunks) hunks = ev.hunks;
       if (ev.done && ev.model && metaEl) {
         metaEl.textContent = `${ev.model} · ${ev.backend || ""} · ${ev.gpu || ""}`;
       }
     });
     if (bodyEl) bodyEl.textContent = text;
-    if (kind === "edit") renderDiff(text, changes);
+    if (kind === "edit") renderDiff(text, changes, hunks);
     toast(metaEl ? metaEl.textContent : "done");
     await refreshLog();
   } catch (err) {
@@ -1106,7 +1228,7 @@ async function sendCompare(kind) {
         `${row.index}) ${row.ok ? "ok" : "fail"} · ${row.model} · ${row.backend || ""}`
       );
     }
-    if (kind === "edit" && data.text) renderDiff(data.text, data.changes);
+    if (kind === "edit" && data.text) renderDiff(data.text, data.changes, data.hunks);
     toast(`Winner: ${judge.pick_model || ""} — not applied`);
     await refreshLog();
   } catch (err) {
@@ -1117,23 +1239,35 @@ async function sendCompare(kind) {
   }
 }
 
-async function applyDiff() {
+async function applyHunks(ids, single) {
   if (state.gitDiff) return toast("Git diffs are for review. Commit from Project → Git; Apply is for coder edits.");
   if (!state.lastDiff) return toast("No diff to apply");
   const confirmProtected = /farm-brain/i.test(state.session.workspace || "")
     ? window.confirm("This workspace is farm-brain. Apply anyway? QC gate still applies.")
     : false;
   try {
+    const payload = { diff: state.lastDiff, confirm_protected: confirmProtected };
+    if (ids) payload.hunks = ids;
     const out = await api("/api/apply", {
       method: "POST",
-      body: JSON.stringify({ diff: state.lastDiff, confirm_protected: confirmProtected }),
+      body: JSON.stringify(payload),
     });
-    toast("Applied " + (out.changed || []).join(", "));
+    (ids || pendingHunkIds()).forEach((id) => markHunk(id, "applied"));
+    toast("Applied " + (out.changed || []).join(", ") + (single && ids ? ` (hunk ${ids.join(",")})` : ""));
     await refreshAll();
     await refreshLog();
   } catch (err) {
     toast(String(err.message || err));
   }
+}
+
+async function applyDiff() {
+  if (state.hunks && state.hunks.length) {
+    const pending = pendingHunkIds();
+    if (!pending.length) return toast("No remaining hunks to apply.");
+    return applyHunks(pending, false);
+  }
+  return applyHunks(null, false);
 }
 
 async function runRecipe(id) {
@@ -1146,7 +1280,7 @@ async function runRecipe(id) {
     });
     if (data.text) {
       addMessage("assistant", data.text, `${data.model || id} · recipe`);
-      if (data.kind === "edit") renderDiff(data.text, data.changes);
+      if (data.kind === "edit") renderDiff(data.text, data.changes, data.hunks);
       await refreshLog();
     } else {
       toast(data.url || data.path || id);
@@ -1188,6 +1322,8 @@ function bind() {
     state.lastDiff = "";
     state.gitDiff = false;
     state.changes = [];
+    state.hunks = [];
+    state.hunkStatus = {};
     renderChangeList([]);
     const body = $("#diffBody");
     if (body) body.innerHTML = "";

@@ -69,6 +69,35 @@ def test_edit_endpoint_includes_change_list(tmp_path, monkeypatch):
     assert data["changes"][1]["kind"] == "added"
 
 
+def test_apply_endpoint_accepts_hunk_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    from forge.state import set_workspace
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "hello.py").write_text('def hello():\n    return "hi"\n\ndef other():\n    return 1\n', encoding="utf-8")
+    set_workspace(root)
+    diff = """--- a/hello.py
++++ b/hello.py
+@@ -1,2 +1,2 @@
+ def hello():
+-    return "hi"
++    return "hello"
+@@ -4,2 +4,2 @@
+ def other():
+-    return 1
++    return 2
+"""
+    status, payload, _ = handle_api("POST", "/api/apply", {}, {"diff": diff, "hunks": [1]})
+    assert status == 200
+    data = json.loads(payload)
+    assert data["changed"] == ["hello.py"]
+    assert data["hunks"] == [1]
+    text = (root / "hello.py").read_text(encoding="utf-8")
+    assert 'return "hi"' in text
+    assert "return 2" in text
+
+
 def test_desk_ask_appends_session_log(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     monkeypatch.setattr(

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from forge import __version__
-from forge.edit import apply_diff, format_change_list
+from forge.edit import apply_diff, format_change_list, format_hunk_list
 from forge.hosts import TIERS, backend_for_tier
 from forge.io import configure_stdio, out, write_chunk
 from forge.launch import launch
@@ -272,13 +272,18 @@ def cmd_edit(args: argparse.Namespace) -> int:
     if changes:
         out("")
         out(format_change_list(changes))
+    hunks = result.get("hunks") or []
+    if hunks:
+        out("")
+        out(format_hunk_list(hunks))
     if result.get("protected"):
         out("")
         out(PROTECTED_HINT)
-    if not args.apply and not args.yes:
+    hunk_ids = list(args.hunk) if getattr(args, "hunk", None) else None
+    if hunk_ids is None and not args.apply and not args.yes:
         if not sys.stdin.isatty():
             out("")
-            out("(diff not applied - pass --apply to write)")
+            out("(diff not applied - pass --apply to write, or --hunk N)")
             return 0
         answer = input("\nApply this diff? [y/N] ").strip().lower()
         if answer not in {"y", "yes"}:
@@ -292,7 +297,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
         out("blocked: farm-brain apply requires --i-understand-qc", err=True)
         return 2
     try:
-        changed = apply_diff(root, result["text"])
+        changed = apply_diff(root, result["text"], hunk_ids)
     except (ValueError, OSError) as exc:
         out(f"apply failed: {exc}", err=True)
         return 1
@@ -347,6 +352,7 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         json=False,
         apply=False,
         yes=False,
+        hunk=[],
         i_understand_qc=False,
     )
     if recipe["kind"] == "ask":
@@ -492,6 +498,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model")
     p.add_argument("--apply", action="store_true")
     p.add_argument("-y", "--yes", action="store_true")
+    p.add_argument("--hunk", action="append", type=int, default=[], help="apply only these hunk ids (repeatable)")
     p.add_argument("--i-understand-qc", dest="i_understand_qc", action="store_true")
     p.set_defaults(func=cmd_edit)
 

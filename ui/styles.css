@@ -150,6 +150,23 @@ body {
 .change-file .stat { color: var(--muted); font-size: 11px; }
 .diff-file { margin: 0 0 14px; }
 .diff-file .git-label { position: sticky; top: 0; background: var(--panel); padding: 4px 0; }
+.hunk { margin: 0 0 10px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.hunk.applied { border-color: #2f5b2a; }
+.hunk.rejected { opacity: 0.45; }
+.hunk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  background: #20180f;
+  border-bottom: 1px solid var(--line);
+}
+.hunk-title { font-family: var(--mono); font-size: 11px; color: var(--muted); flex: 1; min-width: 140px; }
+.hunk-state { font-size: 11px; color: var(--warn); text-transform: uppercase; letter-spacing: 0.06em; }
+.hunk.applied .hunk-state { color: var(--ok); }
+.hunk.rejected .hunk-state { color: var(--down); }
+.hunk .diff { padding: 8px; }
 .file .path-hint { display: block; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #fileSearch {
   width: 100%;

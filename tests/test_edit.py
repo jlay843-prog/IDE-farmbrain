@@ -114,3 +114,36 @@ def test_apply_multi_file(tmp_path: Path):
     assert 'return "hello"' in (tmp_path / "hello.py").read_text(encoding="utf-8")
     assert (tmp_path / "new.txt").read_text(encoding="utf-8").splitlines()[:2] == ["alpha", "beta"]
     assert not (tmp_path / "gone.txt").exists()
+
+
+TWO_HUNKS = """--- a/hello.py
++++ b/hello.py
+@@ -1,2 +1,2 @@
+ def hello():
+-    return "hi"
++    return "hello"
+@@ -4,2 +4,2 @@
+ def other():
+-    return 1
++    return 2
+"""
+
+
+def test_parse_and_apply_one_hunk(tmp_path: Path):
+    from forge.edit import format_hunk_list, hunk_list
+
+    target = tmp_path / "hello.py"
+    target.write_text('def hello():\n    return "hi"\n\ndef other():\n    return 1\n', encoding="utf-8")
+    rows = hunk_list(TWO_HUNKS)
+    assert [row["id"] for row in rows] == [0, 1]
+    assert rows[0]["path"] == "hello.py"
+    assert "hunks (2):" in format_hunk_list(rows)
+    apply_diff(tmp_path, TWO_HUNKS, [1])
+    text = target.read_text(encoding="utf-8")
+    assert 'return "hi"' in text
+    assert "return 2" in text
+    assert "return 1" not in text
+    apply_diff(tmp_path, TWO_HUNKS, [0])
+    text = target.read_text(encoding="utf-8")
+    assert 'return "hello"' in text
+    assert "return 2" in text

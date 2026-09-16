@@ -119,6 +119,84 @@ def format_change_list(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def parse_hunks(text: str) -> list[dict]:
+    rows: list[dict] = []
+    hid = 0
+    for patch in parse_unified_diff(text):
+        kind = "deleted" if patch.is_delete else "added" if patch.is_new else "modified"
+        i = 0
+        lines = patch.lines
+        while i < len(lines):
+            match = HUNK_RE.match(lines[i])
+            if not match:
+                i += 1
+                continue
+            header = lines[i]
+            block = [header]
+            i += 1
+            while i < len(lines) and not lines[i].startswith("@@"):
+                block.append(lines[i])
+                i += 1
+            _, added, deleted = _line_stats(block)
+            rows.append(
+                {
+                    "id": hid,
+                    "path": patch.path,
+                    "header": header,
+                    "old_start": int(match.group(1)),
+                    "old_count": int(match.group(2) or 1),
+                    "new_start": int(match.group(3)),
+                    "new_count": int(match.group(4) or 1),
+                    "added": added,
+                    "deleted": deleted,
+                    "kind": kind,
+                    "new": patch.is_new,
+                    "delete": patch.is_delete,
+                    "lines": block,
+                }
+            )
+            hid += 1
+    return rows
+
+
+def hunk_list(text: str) -> list[dict]:
+    return [{k: v for k, v in row.items() if k != "lines"} for row in parse_hunks(text)]
+
+
+def format_hunk_list(rows: list[dict]) -> str:
+    if not rows:
+        return "no hunks in this reply"
+    lines = [f"hunks ({len(rows)}):"]
+    for row in rows:
+        lines.append(
+            f"  {row.get('id')}) {row.get('path')}  {row.get('header')}  +{row.get('added', 0)} -{row.get('deleted', 0)}"
+        )
+    return "\n".join(lines)
+
+
+def diff_for_hunks(text: str, hunk_ids: list[int] | None) -> str:
+    if hunk_ids is None:
+        return extract_diff(text)
+    wanted = {int(i) for i in hunk_ids}
+    chosen = [row for row in parse_hunks(text) if row["id"] in wanted]
+    if not chosen:
+        raise ValueError("no matching hunks")
+    parts: list[str] = []
+    i = 0
+    while i < len(chosen):
+        first = chosen[i]
+        group = [first]
+        i += 1
+        while i < len(chosen) and chosen[i]["path"] == first["path"] and chosen[i]["new"] == first["new"] and chosen[i]["delete"] == first["delete"]:
+            group.append(chosen[i])
+            i += 1
+        old = "/dev/null" if first["new"] else f"a/{first['path']}"
+        new = "/dev/null" if first["delete"] else f"b/{first['path']}"
+        body = "\n".join("\n".join(h["lines"]) for h in group)
+        parts.append(f"--- {old}\n+++ {new}\n{body}")
+    return "\n".join(parts)
+
+
 def _apply_hunks(original: str, patch_lines: list[str]) -> str:
     src = original.splitlines()
     out: list[str] = []
@@ -166,7 +244,9 @@ def _apply_hunks(original: str, patch_lines: list[str]) -> str:
     return body
 
 
-def apply_diff(workspace: Path, diff_text: str) -> list[str]:
+def apply_diff(workspace: Path, diff_text: str, hunk_ids: list[int] | None = None) -> list[str]:
+    if hunk_ids is not None:
+        diff_text = diff_for_hunks(diff_text, hunk_ids)
     changed: list[str] = []
     for patch in parse_unified_diff(diff_text):
         dest = resolve_under(workspace, patch.path)
