@@ -38,6 +38,16 @@
             <input id="fileSearch" type="search" placeholder="Search paths…" autocomplete="off" spellcheck="false" aria-label="Search workspace paths" />
             <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
             <div id="files"></div>
+            <h2>Git</h2>
+            <div id="git" class="git-pane">
+              <p id="gitMeta" class="status-line">No git status yet.</p>
+              <div id="gitFiles"></div>
+              <textarea id="gitMessage" rows="2" placeholder="Commit message (local only, no push)"></textarea>
+              <div class="git-actions">
+                <button id="gitDiffBtn" class="btn" type="button">Show diff</button>
+                <button id="gitCommitBtn" class="btn primary" type="button">Commit</button>
+              </div>
+            </div>
             <h2>Links</h2>
             <div id="links"></div>
           </div>

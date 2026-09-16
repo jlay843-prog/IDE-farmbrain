@@ -8,6 +8,9 @@ const state = {
   searchTimer: 0,
   selectedFile: "",
   lastDiff: "",
+  gitDiff: false,
+  git: { repo: false, files: [], summary: "", branch: "", remotes: [] },
+  gitMessage: "",
   tab: "session",
   editor: null,
   compareModels: [],
@@ -353,6 +356,115 @@ function queueSearch(query) {
   }, 180);
 }
 
+function markLetter(status) {
+  const map = { modified: "M", added: "A", deleted: "D", renamed: "R", untracked: "?", copied: "C", unmerged: "U" };
+  return map[status] || "M";
+}
+
+function renderGit(data) {
+  const box = $("#gitFiles");
+  const meta = $("#gitMeta");
+  const commitBtn = $("#gitCommitBtn");
+  const diffBtn = $("#gitDiffBtn");
+  if (!box || !meta) return;
+  const git = data || state.git || {};
+  state.git = git;
+  box.innerHTML = "";
+  if (!git.ok && git.error) {
+    meta.textContent = git.error;
+    if (commitBtn) commitBtn.disabled = true;
+    return;
+  }
+  if (!git.repo) {
+    meta.textContent = git.summary || "Not a git repository.";
+    if (commitBtn) commitBtn.disabled = true;
+    return;
+  }
+  const remotes = git.remotes || [];
+  const remoteBit = remotes.length ? `remotes ${remotes.join(", ")}` : "no remotes";
+  const emptyBit = git.empty ? " · no commits yet" : git.head ? ` · ${git.head}` : "";
+  meta.textContent = `${git.branch || "HEAD"}${emptyBit} · ${git.summary || ""} · ${remoteBit}`;
+  const rows = git.files || [];
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "status-line";
+    empty.textContent = git.empty ? "Untracked files will show here." : "Working tree clean.";
+    box.appendChild(empty);
+    if (commitBtn) commitBtn.disabled = true;
+    return;
+  }
+  for (const row of rows) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "git-file " + (row.status || "");
+    btn.innerHTML = `<span class="mark">${escapeHtml(markLetter(row.status))}</span><span class="name">${escapeHtml(row.path)}</span>`;
+    btn.title = row.status || "";
+    btn.addEventListener("click", () => openGitDiff(row.path).catch((err) => toast(String(err.message || err))));
+    box.appendChild(btn);
+  }
+  if (commitBtn) commitBtn.disabled = false;
+  if (diffBtn) diffBtn.disabled = false;
+}
+
+async function refreshGit() {
+  try {
+    const data = await api("/api/git");
+    renderGit(data);
+  } catch (err) {
+    renderGit({ ok: false, repo: false, error: String(err.message || err), files: [], remotes: [] });
+  }
+}
+
+function renderGitDiff(text, path) {
+  state.gitDiff = true;
+  const wrap = document.createElement("div");
+  const label = document.createElement("p");
+  label.className = "git-label";
+  label.textContent = path ? `Git · ${path}` : "Git · workspace diff";
+  const pre = document.createElement("pre");
+  pre.className = "diff";
+  pre.innerHTML = String(text || "")
+    .split("\n")
+    .map((line) => {
+      const cls = line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "del" : "";
+      return `<span class="${cls}">${escapeHtml(line)}</span>`;
+    })
+    .join("\n");
+  wrap.appendChild(label);
+  wrap.appendChild(pre);
+  $("#diff").innerHTML = "";
+  $("#diff").appendChild(wrap);
+  setTab("diff");
+}
+
+async function openGitDiff(rel) {
+  const q = rel ? `?path=${encodeURIComponent(rel)}` : "";
+  const data = await api(`/api/git/diff${q}`);
+  if (!data.ok && data.error) throw new Error(data.error);
+  renderGitDiff(data.diff || data.error || "No changes.", rel || "");
+  toast(rel ? `Git diff ${rel}` : "Git workspace diff");
+}
+
+async function commitGit() {
+  const message = ($("#gitMessage") && $("#gitMessage").value.trim()) || state.gitMessage || "";
+  if (!message) return toast("Type a commit message first.");
+  const files = (state.git && state.git.files) || [];
+  if (!files.length) return toast("Nothing to commit.");
+  try {
+    const out = await api("/api/git/commit", {
+      method: "POST",
+      body: JSON.stringify({ message, paths: files.map((row) => row.path) }),
+    });
+    if ($("#gitMessage")) $("#gitMessage").value = "";
+    state.gitMessage = "";
+    renderGit(out);
+    toast(out.log || out.summary || "Committed locally (not pushed).");
+    await refreshGit();
+  } catch (err) {
+    toast(String(err.message || err));
+  }
+}
+
 async function openFile(rel) {
   const data = await api(`/api/file?path=${encodeURIComponent(rel)}`);
   setTab("file");
@@ -435,6 +547,7 @@ function escapeHtml(s) {
 
 function renderDiff(text) {
   state.lastDiff = text;
+  state.gitDiff = false;
   const pre = document.createElement("pre");
   pre.className = "diff";
   pre.innerHTML = text
@@ -596,6 +709,8 @@ async function refreshAll() {
   renderProjects();
   renderRecipes(desk.recipes);
   renderLinks(desk.links);
+  if (desk.git) renderGit(desk.git);
+  else await refreshGit();
   if (state.searchQuery) {
     await runSearch(state.searchQuery);
   } else {
@@ -814,6 +929,7 @@ async function sendCompare(kind) {
 }
 
 async function applyDiff() {
+  if (state.gitDiff) return toast("Git diffs are for review. Commit from Project → Git; Apply is for coder edits.");
   if (!state.lastDiff) return toast("No diff to apply");
   const confirmProtected = /farm-brain/i.test(state.session.workspace || "")
     ? window.confirm("This workspace is farm-brain. Apply anyway? QC gate still applies.")
@@ -881,9 +997,20 @@ function bind() {
   $("#applyBtn").addEventListener("click", applyDiff);
   $("#rejectBtn").addEventListener("click", () => {
     state.lastDiff = "";
+    state.gitDiff = false;
     $("#diff").innerHTML = "";
     setTab("session");
   });
+  const gitMessage = $("#gitMessage");
+  if (gitMessage) {
+    gitMessage.addEventListener("input", () => {
+      state.gitMessage = gitMessage.value;
+    });
+  }
+  const gitCommitBtn = $("#gitCommitBtn");
+  if (gitCommitBtn) gitCommitBtn.addEventListener("click", () => commitGit());
+  const gitDiffBtn = $("#gitDiffBtn");
+  if (gitDiffBtn) gitDiffBtn.addEventListener("click", () => openGitDiff("").catch((err) => toast(String(err.message || err))));
   $("#openBtn").addEventListener("click", async () => {
     let folder = "";
     let native = false;

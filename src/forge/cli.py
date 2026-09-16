@@ -1,4 +1,4 @@
-"""forge status|models|use|open|which|ask|edit|serve|projects|recipe|launch"""
+"""forge status|models|use|open|which|ask|edit|git|serve|projects|recipe|launch"""
 
 from __future__ import annotations
 
@@ -23,6 +23,9 @@ from forge.probe import (
 )
 from forge.recipes import RECIPES, get_recipe
 from forge.compare import run_compare
+from forge.git import commit as git_commit
+from forge.git import diff_for as git_diff
+from forge.git import snapshot as git_snapshot
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
     PROTECTED_HINT,
@@ -375,6 +378,53 @@ def cmd_mesh(args: argparse.Namespace) -> int:
     return _print_json(mesh_snapshot())
 
 
+def cmd_git(args: argparse.Namespace) -> int:
+    root = workspace_path()
+    action = args.action or "status"
+    if action == "status":
+        snap = git_snapshot(root)
+        if args.json:
+            return _print_json(snap)
+        if not snap.get("repo"):
+            out(snap.get("summary") or snap.get("error") or "Not a git repository.")
+            return 0 if snap.get("ok") else 1
+        bits = [snap.get("branch") or "HEAD"]
+        if snap.get("head"):
+            bits.append(str(snap["head"]))
+        if snap.get("empty"):
+            bits.append("no commits yet")
+        remotes = snap.get("remotes") or []
+        bits.append("no remotes" if not remotes else "remotes " + ", ".join(remotes))
+        out("  ".join(bits))
+        out(snap.get("summary") or "")
+        for row in snap.get("files") or []:
+            mark = (row.get("status") or "changed")[:1].upper()
+            out(f"  {mark} {row.get('path')}")
+        return 0 if snap.get("ok") else 1
+    if action == "diff":
+        data = git_diff(root, args.path or "")
+        if args.json:
+            return _print_json(data)
+        if not data.get("ok") or not data.get("repo"):
+            out(data.get("error") or data.get("summary") or "Not a git repository.", err=True)
+            return 1
+        out(data.get("diff") or "")
+        return 0
+    if action == "commit":
+        try:
+            paths = [p for p in [args.path, *(args.path_args or [])] if p]
+            result = git_commit(root, args.message or "", paths)
+        except (ValueError, FileNotFoundError, RuntimeError) as exc:
+            out(str(exc), err=True)
+            return 1
+        if args.json:
+            return _print_json(result)
+        out(result.get("log") or result.get("summary") or "committed")
+        return 0 if result.get("ok") else 1
+    out(f"unknown git action {action}", err=True)
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="forge", description="Local Qwen coding desk")
     parser.add_argument("--version", action="version", version=f"forge {__version__}")
@@ -456,6 +506,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("mesh", help="JSON compute graph")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_mesh)
+
+    p = sub.add_parser("git", help="local status, diff, and commit (no push)")
+    p.add_argument("action", nargs="?", default="status", choices=["status", "diff", "commit"])
+    p.add_argument("path", nargs="?", default="", help="path for diff")
+    p.add_argument("path_args", nargs="*", help="paths for commit")
+    p.add_argument("-m", "--message", default="")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_git)
 
     return parser
 

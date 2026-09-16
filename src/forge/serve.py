@@ -12,6 +12,9 @@ from urllib.parse import parse_qs, urlparse
 from forge import __version__
 from forge.compare import run_compare
 from forge.context import resolve_under, search_paths, tree_listing
+from forge.git import commit as git_commit
+from forge.git import diff_for as git_diff
+from forge.git import snapshot as git_snapshot
 from forge.edit import apply_diff
 from forge.hosts import LINKS
 from forge.launch import launch, link_catalog
@@ -62,6 +65,13 @@ def handle_api(method: str, path: str, query: dict, body: dict) -> tuple[int, by
         return _json_bytes({"ok": False, "error": str(exc)}, 500)
 
 
+def _git_or_empty(root):
+    try:
+        return git_snapshot(root)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "repo": False, "error": str(exc), "files": [], "remotes": []}
+
+
 def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, bytes, str]:
     if path == "/api/health":
         return _json_bytes({"ok": True, "name": "forge", "version": __version__})
@@ -78,6 +88,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 "links": link_catalog(),
                 "workspace": str(root) if root else "",
                 "log_path": str(log_path()),
+                "git": _git_or_empty(root),
             }
         )
     if path == "/api/log":
@@ -133,6 +144,21 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes(
             assign_project(body["path"], tier=body.get("tier") or "code", model=body.get("model") or "qwen3-coder:30b")
         )
+    if path in {"/api/git", "/api/git/status"}:
+        root = workspace_path()
+        return _json_bytes(_git_or_empty(root))
+    if path == "/api/git/diff":
+        root = workspace_path()
+        rel = (query.get("path") or [""])[0]
+        return _json_bytes(git_diff(root, rel))
+    if path == "/api/git/commit" and method == "POST":
+        root = workspace_path()
+        if root is None:
+            raise ValueError("no workspace")
+        paths = body.get("paths") or []
+        if not isinstance(paths, list):
+            raise ValueError("paths must be a list")
+        return _json_bytes(git_commit(root, body.get("message") or "", [str(p) for p in paths]))
     if path == "/api/files/search":
         root = workspace_path()
         if root is None:

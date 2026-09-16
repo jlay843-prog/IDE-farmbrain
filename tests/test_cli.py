@@ -7,7 +7,7 @@ from forge.log import log_turn, read_turns
 def test_parser_has_week1_commands():
     parser = build_parser()
     names = parser._subparsers._group_actions[0].choices
-    for name in ("status", "models", "use", "open", "which", "ask", "edit", "compare", "serve", "projects", "recipe", "launch"):
+    for name in ("status", "models", "use", "open", "which", "ask", "edit", "compare", "git", "serve", "projects", "recipe", "launch"):
         assert name in names
 
 
@@ -152,3 +152,14 @@ def test_desk_ui_has_log_tab_and_stream_client():
     assert 'id="log"' in html
     assert "/api/ask/stream" in js
     assert "/api/edit/stream" in js
+
+
+def test_desk_ui_has_git_pane_and_no_push():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    assert 'id="git"' in html
+    assert "/api/git/commit" in js
+    assert "/api/git/diff" in js
+    assert "git push" not in js.lower()
+    assert "pull request" not in js.lower()
