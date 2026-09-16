@@ -382,8 +382,11 @@ function renderGit(data) {
   }
   const remotes = git.remotes || [];
   const remoteBit = remotes.length ? `remotes ${remotes.join(", ")}` : "no remotes";
-  const emptyBit = git.empty ? " · no commits yet" : git.head ? ` · ${git.head}` : "";
-  meta.textContent = `${git.branch || "HEAD"}${emptyBit} · ${git.summary || ""} · ${remoteBit}`;
+  const bits = [git.branch || "HEAD"];
+  if (git.head) bits.push(git.head);
+  if (git.summary) bits.push(git.summary);
+  bits.push(remoteBit);
+  meta.textContent = bits.join(" · ");
   const rows = git.files || [];
   if (!rows.length) {
     const empty = document.createElement("p");
