@@ -43,7 +43,24 @@ def test_chat_sends_stream_true_and_joins_deltas(monkeypatch):
     assert out["model"] == "qwen3.8:27b"
 
 
-def test_iter_chat_yields_token_chunks(monkeypatch):
+def test_iter_chat_passes_tools(monkeypatch):
+    seen = {}
+
+    def fake_urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data.decode("utf-8"))
+        return FakeResp(b'{"message":{"content":"","tool_calls":[{"function":{"name":"list","arguments":{"path":"src"}}}]},"done":true}\n')
+
+    monkeypatch.setattr("forge.httputil.urllib.request.urlopen", fake_urlopen)
+    chunks = list(
+        iter_chat(
+            "http://x",
+            "m",
+            [{"role": "user", "content": "hi"}],
+            tools=[{"type": "function", "function": {"name": "list"}}],
+        )
+    )
+    assert seen["body"]["tools"][0]["function"]["name"] == "list"
+    assert chunks[-1]["tool_calls"][0]["function"]["name"] == "list"
     def fake_urlopen(req, timeout=None):
         return FakeResp(b'{"message":{"content":"A"},"done":false}\n{"message":{"content":"B"},"done":true}\n')
 

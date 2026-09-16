@@ -1030,6 +1030,18 @@ async function send(kind) {
         if (bodyEl) bodyEl.textContent = text;
         $("#session").scrollTop = $("#session").scrollHeight;
       }
+      if (ev.tool) {
+        const t = ev.tool;
+        const line =
+          t.phase === "call"
+            ? `tool ${t.name} ${t.args && (t.args.path || t.args.pattern) ? t.args.path || t.args.pattern : ""}`.trim()
+            : `${t.name}: ${t.preview || t.error || ""}`;
+        if (metaEl) {
+          const prev = metaEl.textContent || "";
+          metaEl.textContent = prev && prev !== "streaming…" ? `${prev} · ${line}` : line;
+        }
+        toast(line);
+      }
       if (ev.error) throw new Error(ev.error);
       if (ev.done && ev.text && !text) text = ev.text;
       if (ev.done && ev.changes) changes = ev.changes;

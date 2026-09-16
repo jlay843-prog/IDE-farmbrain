@@ -152,6 +152,7 @@ def test_desk_ui_has_log_tab_and_stream_client():
     assert 'id="log"' in html
     assert "/api/ask/stream" in js
     assert "/api/edit/stream" in js
+    assert "ev.tool" in js
 
 
 def test_desk_ui_has_git_pane_and_no_push():

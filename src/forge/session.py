@@ -11,6 +11,13 @@ from forge.edit import ASK_SYSTEM, EDIT_SYSTEM, apply_diff, change_list
 from forge.llm import chat, iter_chat
 from forge.probe import resolve_session
 from forge.state import is_protected_workspace, load_state, workspace_path
+from forge.tools import (
+    MAX_ROUNDS,
+    OLLAMA_TOOLS,
+    format_tool_result,
+    run_tool,
+    tool_calls_from_reply,
+)
 
 
 class SessionError(RuntimeError):
@@ -19,6 +26,7 @@ class SessionError(RuntimeError):
 
 BeginFn = Callable[[dict[str, Any]], None]
 DeltaFn = Callable[[str], None]
+ToolFn = Callable[[dict[str, Any]], None]
 
 
 def active_session(tier: str | None = None, model: str | None = None, *, purpose: str | None = None) -> dict:
@@ -40,21 +48,13 @@ def active_session(tier: str | None = None, model: str | None = None, *, purpose
     return resolved
 
 
-def build_messages(system: str, prompt: str, files: list[dict[str, str]]) -> list[dict[str, str]]:
+def build_messages(system: str, prompt: str, files: list[dict[str, str]]) -> list[dict[str, Any]]:
     context = format_context(files)
     user = prompt if not context else f"{prompt}\n\n{context}"
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def _generate(
-    sess: dict[str, Any],
-    system: str,
-    prompt: str,
-    named: list[dict[str, str]],
-    *,
-    on_begin: BeginFn | None = None,
-    on_delta: DeltaFn | None = None,
-) -> dict[str, Any]:
+def _emit_begin(sess: dict[str, Any], on_begin: BeginFn | None) -> None:
     if on_begin:
         on_begin(
             {
@@ -65,20 +65,91 @@ def _generate(
                 "tier": sess["tier"],
             }
         )
-    messages = build_messages(system, prompt, named)
+
+
+def _one_turn(
+    sess: dict[str, Any],
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    on_delta: DeltaFn | None = None,
+) -> dict[str, Any]:
     if on_delta is None:
-        return chat(sess["base"], sess["model"], messages)
+        return chat(sess["base"], sess["model"], messages, tools=tools)
     parts: list[str] = []
     model = sess["model"]
     raw: dict[str, Any] = {}
-    for chunk in iter_chat(sess["base"], sess["model"], messages):
+    tool_calls: list[Any] = []
+    for chunk in iter_chat(sess["base"], sess["model"], messages, tools=tools):
         delta = chunk.get("delta") or ""
         if delta:
             parts.append(delta)
             on_delta(delta)
         model = chunk.get("model") or model
         raw = chunk.get("raw") or raw
-    return {"text": "".join(parts), "model": model, "done": True, "raw": raw}
+        if chunk.get("tool_calls"):
+            tool_calls = chunk["tool_calls"]
+    if tool_calls:
+        message = raw.get("message") if isinstance(raw, dict) else None
+        base_msg = message if isinstance(message, dict) else {}
+        raw = {**(raw if isinstance(raw, dict) else {}), "message": {**base_msg, "tool_calls": tool_calls}}
+    return {"text": "".join(parts), "model": model, "done": True, "raw": raw, "tool_calls": tool_calls}
+
+
+def _generate(
+    sess: dict[str, Any],
+    system: str,
+    prompt: str,
+    named: list[dict[str, str]],
+    *,
+    workspace: Path | None = None,
+    use_tools: bool = False,
+    on_begin: BeginFn | None = None,
+    on_delta: DeltaFn | None = None,
+    on_tool: ToolFn | None = None,
+) -> dict[str, Any]:
+    _emit_begin(sess, on_begin)
+    messages = build_messages(system, prompt, named)
+    traces: list[dict[str, Any]] = []
+    last: dict[str, Any] = {"text": "", "model": sess["model"], "done": True, "raw": {}, "tools": []}
+    rounds = MAX_ROUNDS if use_tools and workspace is not None else 0
+    for step in range(rounds + 1):
+        offer = OLLAMA_TOOLS if use_tools and step < rounds else None
+        last = _one_turn(sess, messages, tools=offer, on_delta=on_delta)
+        calls = tool_calls_from_reply(last.get("text") or "", last.get("raw")) if offer else []
+        if offer and calls and not change_list(last.get("text") or ""):
+            messages.append({"role": "assistant", "content": last.get("text") or ""})
+            blobs: list[str] = []
+            for call in calls:
+                args = call.get("args") if isinstance(call.get("args"), dict) else {}
+                if on_tool:
+                    on_tool({"phase": "call", "name": call.get("name"), "args": args})
+                result = run_tool(workspace, str(call.get("name") or ""), args)
+                trace = {
+                    "name": result.get("name") or call.get("name"),
+                    "ok": bool(result.get("ok")),
+                    "detail": result.get("detail") or result.get("path") or "",
+                    "preview": result.get("preview") or result.get("error") or "",
+                }
+                traces.append(trace)
+                if on_tool:
+                    on_tool({"phase": "result", **trace})
+                blobs.append(format_tool_result(result))
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Tool results (read/list/grep only; there is no shell). "
+                        "Return a unified diff, or another read/list/grep call.\n\n"
+                        + "\n\n".join(blobs)
+                    ),
+                }
+            )
+            continue
+        last["tools"] = traces
+        return last
+    last["tools"] = traces
+    return last
 
 
 def run_ask(
@@ -119,6 +190,7 @@ def run_edit(
     workspace: Path | None = None,
     on_begin: BeginFn | None = None,
     on_delta: DeltaFn | None = None,
+    on_tool: ToolFn | None = None,
 ) -> dict:
     sess = active_session(tier, model, purpose="edit")
     root = workspace or workspace_path()
@@ -129,7 +201,17 @@ def run_edit(
             "workspace is farm-brain; apply is blocked unless you pass --i-understand-qc"
         )
     named = read_files(root, files or []) if files else []
-    reply = _generate(sess, EDIT_SYSTEM, prompt, named, on_begin=on_begin, on_delta=on_delta)
+    reply = _generate(
+        sess,
+        EDIT_SYSTEM,
+        prompt,
+        named,
+        workspace=root,
+        use_tools=True,
+        on_begin=on_begin,
+        on_delta=on_delta,
+        on_tool=on_tool,
+    )
     result = {
         "ok": True,
         "kind": "edit",
@@ -141,6 +223,7 @@ def run_edit(
         "text": reply["text"],
         "files": [f["path"] for f in named],
         "changes": change_list(reply["text"]),
+        "tools": reply.get("tools") or [],
         "applied": False,
         "changed": [],
         "protected": is_protected_workspace(root),

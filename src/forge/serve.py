@@ -273,6 +273,9 @@ class Handler(BaseHTTPRequestHandler):
         def on_delta(delta: str) -> None:
             self._write_sse({"delta": delta})
 
+        def on_tool(ev: dict) -> None:
+            self._write_sse({"tool": ev})
+
         try:
             if not prompt:
                 raise SessionError("empty prompt")
@@ -285,6 +288,7 @@ class Handler(BaseHTTPRequestHandler):
                     model=body.get("model"),
                     on_begin=on_begin,
                     on_delta=on_delta,
+                    on_tool=on_tool,
                 )
             else:
                 result = run_ask(

@@ -210,6 +210,20 @@ def _stream_delta(json_mode: bool):
     return on_delta
 
 
+def _stream_tool(json_mode: bool):
+    def on_tool(ev: dict) -> None:
+        if json_mode:
+            return
+        if ev.get("phase") == "call":
+            args = ev.get("args") or {}
+            detail = args.get("path") or args.get("pattern") or ""
+            out(f"\n# tool {ev.get('name')} {detail}".rstrip())
+            return
+        out(f"# {ev.get('name')} {ev.get('preview') or ''}".rstrip())
+
+    return on_tool
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
     try:
@@ -243,12 +257,17 @@ def cmd_edit(args: argparse.Namespace) -> int:
             model=args.model,
             on_begin=_stream_begin(json_mode),
             on_delta=_stream_delta(json_mode),
+            on_tool=_stream_tool(json_mode),
         )
     except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:
         out(str(exc), err=True)
         return 1
     write_chunk("\n")
     log_turn("edit", result, args.prompt)
+    traces = result.get("tools") or []
+    if traces:
+        out("")
+        out("tools: " + ", ".join(f"{t.get('name')} {t.get('detail') or ''}".strip() for t in traces))
     changes = result.get("changes") or []
     if changes:
         out("")

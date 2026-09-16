@@ -61,7 +61,7 @@ Bare `forge` prints the pinned session and help. Turns are appended to `%LOCALAP
 
 `forge git` prints local status (branch, changed paths, remotes if any). `forge git diff [path]` prints a unified diff, including untracked files. `forge git commit -m "message"` commits locally. There is **no push, no PR, and no remote is invented**.
 
-`forge edit` prints a unified diff, then a **change list** of every file in that reply (`M`/`A`/`D`, +/−, hunk counts), and asks `[y/N]` before writing. `farm-brain` apply is blocked unless you pass `--i-understand-qc` — the existing coder QC gate still applies. Check multiple files in the desk (or pass `--file` more than once) so one edit can name several paths.
+`forge edit` may call **read / list / grep** on the workspace first (no shell). It then prints a unified diff, then a **change list** of every file in that reply (`M`/`A`/`D`, +/−, hunk counts), and asks `[y/N]` before writing. `farm-brain` apply is blocked unless you pass `--i-understand-qc` — the existing coder QC gate still applies. Check multiple files in the desk (or pass `--file` more than once) so one edit can name several paths.
 
 ## Routing
 
@@ -78,7 +78,7 @@ Farm API calls send `X-Farm-Local-Key` from `FORGE_FARM_TOKEN` or `C:\Users\jlay
 ## Desk panes
 
 1. **Project** — workspace, file tree with breadcrumbs and `..`, path search, checkboxes to **name multiple files** for Ask/Edit, thin **Git** status / diff / local commit, vault / Aether / Lumen / AI-PM / Farm Brain launchers. Search and the tree return paths only; Ask/Edit still send only the named files you check, never the whole repo. Electron **Open workspace** uses the native folder picker (browser/prompt fallback). Git is local only: no push, no PR flow, no invented remotes. Untracked files and empty history are shown; Commit writes a local commit from the listed paths.
-2. **Session** — Chat streams ask/edit tokens live. **Log** is `%LOCALAPPDATA%\Forge\sessions.jsonl` (CLI + desk). After **Edit**, the Diff tab lists every file in that one reply (`M`/`A`/`D`, +/− counts). Click a path to jump to that file’s hunks, then Apply or Reject the whole diff. Coder diffs still use Apply; git diffs are review-only in the Diff tab. Header **Code** / **Ask** dropdowns are live Ollama tags (AMD vs CUDA). Edit uses Code; Ask uses the question model.
+2. **Session** — Chat streams ask/edit tokens live. **Log** is `%LOCALAPPDATA%\Forge\sessions.jsonl` (CLI + desk). **Edit** can call read/list/grep (no shell) and shows those tool lines in the bubble. After **Edit**, the Diff tab lists every file in that one reply (`M`/`A`/`D`, +/− counts). Click a path to jump to that file’s hunks, then Apply or Reject the whole diff. Coder diffs still use Apply; git diffs are review-only in the Diff tab. Header **Code** / **Ask** dropdowns are live Ollama tags (AMD vs CUDA). Edit uses Code; Ask uses the question model.
 3. **Mesh** — EVO/Tower Ollama hosts plus live **BC-250** boards from Farm Brain `/api/compute/dials` (not a static host list). Drag an EVO/Tower model onto a project to assign it. BC-250 pills are inventory only. **Ray** status + last jobs deep-link to the Ray Dashboard (`:8265`) and Farm Brain Compute; **Ontology** (`:8000`) is the SQLite world model, not a Ray job graph.
 
 State lives in `%LOCALAPPDATA%\Forge\state.json`.
