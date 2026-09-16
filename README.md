@@ -72,7 +72,7 @@ Farm API calls send `X-Farm-Local-Key` from `FORGE_FARM_TOKEN` or `C:\Users\jlay
 
 ## Desk panes
 
-1. **Project** — workspace, file list, vault / Aether / Lumen / AI-PM / Farm Brain launchers
+1. **Project** — workspace, file tree with breadcrumbs and `..`, path search, vault / Aether / Lumen / AI-PM / Farm Brain launchers. Search and the tree return paths only; Ask/Edit still send the named file you select, never the whole repo. Electron **Open workspace** uses the native folder picker (browser/prompt fallback).
 2. **Session** — Chat streams ask/edit tokens live. **Log** is `%LOCALAPPDATA%\Forge\sessions.jsonl` (CLI + desk). Diff apply/reject and Monaco file pane. Header **Code** / **Ask** dropdowns are live Ollama tags (AMD vs CUDA). Edit uses Code; Ask uses the question model.
 3. **Mesh** — EVO/Tower Ollama hosts plus live **BC-250** boards from Farm Brain `/api/compute/dials` (not a static host list). Drag an EVO/Tower model onto a project to assign it. BC-250 pills are inventory only. **Ray** status + last jobs deep-link to the Ray Dashboard (`:8265`) and Farm Brain Compute; **Ontology** (`:8000`) is the SQLite world model, not a Ray job graph.
 

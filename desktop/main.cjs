@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const os = require("node:os");
@@ -82,6 +82,7 @@ function createWindow() {
     backgroundColor: "#120e0a",
     icon: path.join(root, "ui", "forge-icon.svg"),
     webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -112,6 +113,17 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
+  ipcMain.handle("forge:open-folder", async (event, defaultPath) => {
+    const bw = BrowserWindow.fromWebContents(event.sender) || win;
+    const result = await dialog.showOpenDialog(bw || undefined, {
+      title: "Open workspace",
+      defaultPath: defaultPath || undefined,
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    return result.filePaths[0];
+  });
+
   app.on("second-instance", () => {
     if (win) {
       if (win.isMinimized()) win.restore();

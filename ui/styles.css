@@ -112,6 +112,39 @@ body {
 .project small { display: block; color: var(--muted); font-size: 11px; }
 .file { display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--ink); padding: 5px 4px; cursor: pointer; font-family: var(--mono); font-size: 12px; }
 .file:hover, .file.active { color: var(--ember); }
+.file.up { color: var(--muted); }
+.file .path-hint { display: block; color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#fileSearch {
+  width: 100%;
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  background: #140f0c;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+#fileSearch:focus { outline: 1px solid var(--copper); }
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  align-items: center;
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.crumbs button {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+.crumbs button:hover, .crumbs button.here { color: var(--ember); }
+.crumbs .sep { color: var(--line); user-select: none; }
 
 .center-tabs { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .center-body { flex: 1; min-height: 0; position: relative; }

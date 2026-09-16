@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from forge import __version__
 from forge.compare import run_compare
-from forge.context import list_tree, resolve_under
+from forge.context import resolve_under, search_paths, tree_listing
 from forge.edit import apply_diff
 from forge.hosts import LINKS
 from forge.launch import launch, link_catalog
@@ -67,11 +67,13 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes({"ok": True, "name": "forge", "version": __version__})
     if path == "/api/desk":
         root = workspace_path()
+        tree = tree_listing(root, "") if root else {"cwd": "", "parent": None, "crumbs": [], "entries": []}
         return _json_bytes(
             {
                 "ok": True,
                 "state": load_state(),
-                "files": list_tree(root, "") if root else [],
+                "files": tree["entries"],
+                "tree": tree,
                 "recipes": RECIPES,
                 "links": link_catalog(),
                 "workspace": str(root) if root else "",
@@ -131,12 +133,19 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes(
             assign_project(body["path"], tier=body.get("tier") or "code", model=body.get("model") or "qwen3-coder:30b")
         )
+    if path == "/api/files/search":
+        root = workspace_path()
+        if root is None:
+            return _json_bytes({"ok": True, "workspace": "", "query": "", "entries": [], "truncated": False})
+        q = (query.get("q") or [""])[0]
+        found = search_paths(root, q)
+        return _json_bytes({"ok": True, "workspace": str(root), **found})
     if path == "/api/files":
         root = workspace_path()
         if root is None:
-            return _json_bytes({"ok": True, "workspace": "", "entries": []})
+            return _json_bytes({"ok": True, "workspace": "", "cwd": "", "parent": None, "crumbs": [], "entries": []})
         rel = (query.get("path") or [""])[0]
-        return _json_bytes({"ok": True, "workspace": str(root), "entries": list_tree(root, rel)})
+        return _json_bytes({"ok": True, "workspace": str(root), **tree_listing(root, rel)})
     if path == "/api/file" and method == "GET":
         root = workspace_path()
         if root is None:

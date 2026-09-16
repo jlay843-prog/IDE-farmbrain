@@ -2,6 +2,10 @@ const $ = (sel) => document.querySelector(sel);
 const state = {
   session: { workspace: "", tier: "code", last_model: "qwen3-coder:30b", projects: [] },
   files: [],
+  tree: { cwd: "", parent: null, crumbs: [], entries: [] },
+  cwd: "",
+  searchQuery: "",
+  searchTimer: 0,
   selectedFile: "",
   lastDiff: "",
   tab: "session",
@@ -240,16 +244,71 @@ function renderProjects() {
 }
 
 function renderFiles(entries) {
+  renderTree(entries);
+}
+
+function renderCrumbs() {
+  const nav = $("#crumbs");
+  if (!nav) return;
+  nav.innerHTML = "";
+  const crumbs = (state.tree && state.tree.crumbs) || [];
+  if (state.searchQuery) {
+    const note = document.createElement("span");
+    note.className = "status-line";
+    note.style.padding = "0";
+    note.textContent = state.tree && state.tree.truncated ? "First 80 path matches" : "Path matches";
+    nav.appendChild(note);
+    return;
+  }
+  crumbs.forEach((crumb, i) => {
+    if (i) {
+      const sep = document.createElement("span");
+      sep.className = "sep";
+      sep.textContent = "/";
+      nav.appendChild(sep);
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = crumb.name || "/";
+    if (i === crumbs.length - 1) btn.className = "here";
+    btn.addEventListener("click", () => goDir(crumb.path));
+    nav.appendChild(btn);
+  });
+}
+
+function renderTree(entries) {
   const box = $("#files");
   box.innerHTML = "";
-  for (const entry of entries || []) {
+  renderCrumbs();
+  const rows = entries || (state.tree && state.tree.entries) || state.files || [];
+  const searching = !!state.searchQuery;
+  if (!searching && state.tree && state.tree.parent !== null && state.tree.parent !== undefined) {
+    const up = document.createElement("button");
+    up.type = "button";
+    up.className = "file up";
+    up.textContent = "▸ ..";
+    up.addEventListener("click", () => goDir(state.tree.parent || ""));
+    box.appendChild(up);
+  }
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "status-line";
+    empty.textContent = searching ? "No paths match." : "This folder is empty.";
+    box.appendChild(empty);
+    return;
+  }
+  for (const entry of rows) {
     const btn = document.createElement("button");
+    btn.type = "button";
     btn.className = "file" + (entry.path === state.selectedFile ? " active" : "");
-    btn.textContent = (entry.kind === "dir" ? "▸ " : "") + entry.name;
+    const label = (entry.kind === "dir" ? "▸ " : "") + (searching ? entry.path : entry.name);
+    btn.textContent = label;
+    if (searching && entry.kind === "file") {
+      btn.title = entry.path;
+    }
     btn.addEventListener("click", async () => {
       if (entry.kind === "dir") {
-        const data = await api(`/api/files?path=${encodeURIComponent(entry.path)}`);
-        renderFiles(data.entries);
+        await goDir(entry.path);
         return;
       }
       state.selectedFile = entry.path;
@@ -257,6 +316,41 @@ function renderFiles(entries) {
     });
     box.appendChild(btn);
   }
+}
+
+async function fetchDir(rel) {
+  const data = await api(`/api/files?path=${encodeURIComponent(rel || "")}`);
+  state.cwd = data.cwd || "";
+  state.tree = data;
+  state.files = data.entries || [];
+  renderTree();
+}
+
+async function goDir(rel) {
+  state.searchQuery = "";
+  const input = $("#fileSearch");
+  if (input) input.value = "";
+  await fetchDir(rel);
+}
+
+async function runSearch(query) {
+  const q = (query || "").trim();
+  state.searchQuery = q;
+  if (!q) {
+    await fetchDir(state.cwd || "");
+    return;
+  }
+  const data = await api(`/api/files/search?q=${encodeURIComponent(q)}`);
+  state.tree = { ...state.tree, entries: data.entries || [], truncated: !!data.truncated };
+  state.files = data.entries || [];
+  renderTree();
+}
+
+function queueSearch(query) {
+  window.clearTimeout(state.searchTimer);
+  state.searchTimer = window.setTimeout(() => {
+    runSearch(query).catch((err) => toast(String(err.message || err)));
+  }, 180);
 }
 
 async function openFile(rel) {
@@ -270,7 +364,7 @@ async function openFile(rel) {
     const area = $("#plainEditor");
     if (area) area.value = data.text;
   }
-  renderFiles(state.files);
+  renderFiles();
 }
 
 function languageFor(path) {
@@ -487,14 +581,26 @@ function renderLinks(links) {
 
 async function refreshAll() {
   const desk = await api("/api/desk");
+  const prevWs = state.session.workspace || "";
+  const nextWs = (desk.state && desk.state.workspace) || desk.workspace || "";
+  const wsChanged = prevWs !== nextWs;
   state.session = desk.state;
-  state.files = desk.files || [];
   if (desk.log_path) state.logPath = desk.log_path;
+  if (wsChanged) {
+    state.cwd = "";
+    state.searchQuery = "";
+    const input = $("#fileSearch");
+    if (input) input.value = "";
+  }
   renderTiers();
   renderProjects();
-  renderFiles(state.files);
   renderRecipes(desk.recipes);
   renderLinks(desk.links);
+  if (state.searchQuery) {
+    await runSearch(state.searchQuery);
+  } else {
+    await fetchDir(state.cwd || "");
+  }
   toast(`edit ${desk.state.code_model || ""} · ask ${desk.state.chat_model || ""} · ${desk.state.workspace || "no workspace"}`);
   const [status, mesh] = await Promise.all([api("/api/status"), api("/api/mesh")]);
   renderChips(status, mesh);
@@ -779,11 +885,35 @@ function bind() {
     setTab("session");
   });
   $("#openBtn").addEventListener("click", async () => {
-    const path = window.prompt("Workspace path", state.session.workspace || "C:\\Users\\jlay\\Grok\\forge");
-    if (!path) return;
-    await api("/api/open", { method: "POST", body: JSON.stringify({ path }) });
+    let folder = "";
+    let native = false;
+    if (window.forge && typeof window.forge.openFolder === "function") {
+      native = true;
+      try {
+        folder = (await window.forge.openFolder(state.session.workspace || "C:\\Users\\jlay\\Grok\\forge")) || "";
+      } catch {
+        native = false;
+      }
+    }
+    if (!native) {
+      folder = window.prompt("Workspace path", state.session.workspace || "C:\\Users\\jlay\\Grok\\forge") || "";
+    }
+    if (!folder) return;
+    await api("/api/open", { method: "POST", body: JSON.stringify({ path: folder }) });
+    state.cwd = "";
+    state.searchQuery = "";
     await refreshAll();
   });
+  const search = $("#fileSearch");
+  if (search) {
+    search.addEventListener("input", () => queueSearch(search.value));
+    search.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        search.value = "";
+        runSearch("").catch((err) => toast(String(err.message || err)));
+      }
+    });
+  }
   document.querySelectorAll(".center-tabs .btn").forEach((btn) => {
     btn.addEventListener("click", () => setTab(btn.dataset.tab));
   });
