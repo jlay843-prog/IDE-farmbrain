@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from forge.context import format_context, read_files
 from forge.edit import ASK_SYSTEM, EDIT_SYSTEM, apply_diff
-from forge.llm import chat
+from forge.llm import chat, iter_chat
 from forge.probe import resolve_session
 from forge.state import is_protected_workspace, load_state, workspace_path
 
 
 class SessionError(RuntimeError):
     pass
+
+
+BeginFn = Callable[[dict[str, Any]], None]
+DeltaFn = Callable[[str], None]
 
 
 def active_session(tier: str | None = None, model: str | None = None, *, purpose: str | None = None) -> dict:
@@ -40,6 +46,41 @@ def build_messages(system: str, prompt: str, files: list[dict[str, str]]) -> lis
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+def _generate(
+    sess: dict[str, Any],
+    system: str,
+    prompt: str,
+    named: list[dict[str, str]],
+    *,
+    on_begin: BeginFn | None = None,
+    on_delta: DeltaFn | None = None,
+) -> dict[str, Any]:
+    if on_begin:
+        on_begin(
+            {
+                "model": sess["model"],
+                "backend": sess["backend"]["id"],
+                "gpu": sess["backend"]["gpu"],
+                "base": sess["base"],
+                "tier": sess["tier"],
+            }
+        )
+    messages = build_messages(system, prompt, named)
+    if on_delta is None:
+        return chat(sess["base"], sess["model"], messages)
+    parts: list[str] = []
+    model = sess["model"]
+    raw: dict[str, Any] = {}
+    for chunk in iter_chat(sess["base"], sess["model"], messages):
+        delta = chunk.get("delta") or ""
+        if delta:
+            parts.append(delta)
+            on_delta(delta)
+        model = chunk.get("model") or model
+        raw = chunk.get("raw") or raw
+    return {"text": "".join(parts), "model": model, "done": True, "raw": raw}
+
+
 def run_ask(
     prompt: str,
     files: list[str] | None = None,
@@ -47,11 +88,13 @@ def run_ask(
     tier: str | None = None,
     model: str | None = None,
     workspace: Path | None = None,
+    on_begin: BeginFn | None = None,
+    on_delta: DeltaFn | None = None,
 ) -> dict:
     sess = active_session(tier, model, purpose="ask")
     root = workspace or workspace_path()
     named = read_files(root, files or []) if root and files else []
-    reply = chat(sess["base"], sess["model"], build_messages(ASK_SYSTEM, prompt, named))
+    reply = _generate(sess, ASK_SYSTEM, prompt, named, on_begin=on_begin, on_delta=on_delta)
     return {
         "ok": True,
         "kind": "ask",
@@ -74,6 +117,8 @@ def run_edit(
     tier: str | None = None,
     model: str | None = None,
     workspace: Path | None = None,
+    on_begin: BeginFn | None = None,
+    on_delta: DeltaFn | None = None,
 ) -> dict:
     sess = active_session(tier, model, purpose="edit")
     root = workspace or workspace_path()
@@ -84,7 +129,7 @@ def run_edit(
             "workspace is farm-brain; apply is blocked unless you pass --i-understand-qc"
         )
     named = read_files(root, files or []) if files else []
-    reply = chat(sess["base"], sess["model"], build_messages(EDIT_SYSTEM, prompt, named))
+    reply = _generate(sess, EDIT_SYSTEM, prompt, named, on_begin=on_begin, on_delta=on_delta)
     result = {
         "ok": True,
         "kind": "edit",

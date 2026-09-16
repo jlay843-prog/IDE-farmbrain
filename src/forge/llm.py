@@ -2,9 +2,47 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
-from forge.httputil import request_json
+from forge.httputil import iter_ndjson
+
+
+def iter_chat(
+    base: str,
+    model: str,
+    messages: list[dict[str, str]],
+    *,
+    temperature: float = 0.2,
+    keep_alive: str = "30m",
+    timeout: float = 180.0,
+) -> Iterator[dict[str, Any]]:
+    """Yield Ollama /api/chat chunks with stream=True (one NDJSON object per line)."""
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "keep_alive": keep_alive,
+        "options": {"temperature": temperature},
+    }
+    try:
+        for obj in iter_ndjson(f"{base}/api/chat", method="POST", body=payload, timeout=timeout):
+            if not isinstance(obj, dict):
+                continue
+            if obj.get("error") and not obj.get("message"):
+                raise RuntimeError(f"Ollama {base} returned error: {obj['error']}")
+            message = obj.get("message") or {}
+            delta = message.get("content") or obj.get("response") or ""
+            yield {
+                "delta": delta,
+                "done": bool(obj.get("done")),
+                "model": obj.get("model") or model,
+                "raw": obj,
+            }
+            if obj.get("done"):
+                return
+    except RuntimeError as exc:
+        raise RuntimeError(f"Ollama {base} failed: {exc}") from exc
 
 
 def chat(
@@ -16,26 +54,22 @@ def chat(
     keep_alive: str = "30m",
     timeout: float = 180.0,
 ) -> dict[str, Any]:
-    code, body = request_json(
-        f"{base}/api/chat",
-        method="POST",
-        body={
-            "model": model,
-            "messages": messages,
-            "stream": False,
-            "keep_alive": keep_alive,
-            "options": {"temperature": temperature},
-        },
+    parts: list[str] = []
+    last: dict[str, Any] = {}
+    for chunk in iter_chat(
+        base,
+        model,
+        messages,
+        temperature=temperature,
+        keep_alive=keep_alive,
         timeout=timeout,
-    )
-    if code != 200:
-        err = body.get("error") if isinstance(body, dict) else body
-        raise RuntimeError(f"Ollama {base} returned {code}: {err}")
-    message = (body or {}).get("message") or {}
-    text = message.get("content") or body.get("response") or ""
+    ):
+        if chunk.get("delta"):
+            parts.append(chunk["delta"])
+        last = chunk
     return {
-        "text": text,
-        "model": body.get("model") or model,
-        "done": body.get("done", True),
-        "raw": body,
+        "text": "".join(parts),
+        "model": last.get("model") or model,
+        "done": last.get("done", True),
+        "raw": last.get("raw"),
     }

@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from forge import __version__
+from forge.compare import run_compare
 from forge.context import list_tree, resolve_under
 from forge.edit import apply_diff
 from forge.hosts import LINKS
 from forge.launch import launch, link_catalog
+from forge.log import log_path, log_turn, read_turns
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
-from forge.compare import run_compare
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
     assign_project,
@@ -35,10 +38,15 @@ MIME = {
     ".png": "image/png",
     ".ico": "image/x-icon",
 }
+STREAM_PATHS = {"/api/ask/stream", "/api/edit/stream"}
 
 
 def _json_bytes(data, status: int = 200) -> tuple[int, bytes, str]:
     return status, json.dumps(data, default=str).encode("utf-8"), "application/json; charset=utf-8"
+
+
+def sse_bytes(data: dict[str, Any]) -> bytes:
+    return f"data: {json.dumps(data, default=str)}\n\n".encode("utf-8")
 
 
 def handle_api(method: str, path: str, query: dict, body: dict) -> tuple[int, bytes, str]:
@@ -67,8 +75,15 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 "recipes": RECIPES,
                 "links": link_catalog(),
                 "workspace": str(root) if root else "",
+                "log_path": str(log_path()),
             }
         )
+    if path == "/api/log":
+        try:
+            limit = int((query.get("limit") or ["80"])[0])
+        except ValueError:
+            limit = 80
+        return _json_bytes({"ok": True, "path": str(log_path()), "turns": read_turns(limit)})
     if path == "/api/status":
         return _json_bytes(status_snapshot())
     if path == "/api/models":
@@ -87,19 +102,19 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
     if path == "/api/open" and method == "POST":
         return _json_bytes(set_workspace(body["path"]))
     if path == "/api/ask" and method == "POST":
-        return _json_bytes(
-            run_ask(body["prompt"], body.get("files") or [], tier=body.get("tier"), model=body.get("model"))
-        )
+        result = run_ask(body["prompt"], body.get("files") or [], tier=body.get("tier"), model=body.get("model"))
+        log_turn("ask", result, body.get("prompt") or "")
+        return _json_bytes(result)
     if path == "/api/edit" and method == "POST":
-        return _json_bytes(
-            run_edit(
-                body["prompt"],
-                body.get("files") or [],
-                apply=False,
-                tier=body.get("tier"),
-                model=body.get("model"),
-            )
+        result = run_edit(
+            body["prompt"],
+            body.get("files") or [],
+            apply=False,
+            tier=body.get("tier"),
+            model=body.get("model"),
         )
+        log_turn("edit", result, body.get("prompt") or "")
+        return _json_bytes(result)
     if path == "/api/apply" and method == "POST":
         root = workspace_path()
         if root is None:
@@ -107,7 +122,9 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         if is_protected_workspace(root) and not body.get("confirm_protected"):
             raise SessionError("farm-brain apply requires confirm_protected")
         changed = apply_diff(root, body["diff"])
-        return _json_bytes({"ok": True, "changed": changed})
+        result = {"ok": True, "kind": "apply", "changed": changed, "applied": True, "files": []}
+        log_turn("apply", result, "")
+        return _json_bytes(result)
     if path == "/api/projects" and method == "GET":
         return _json_bytes(load_state())
     if path == "/api/projects" and method == "POST":
@@ -152,17 +169,21 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         prompt = (body.get("prompt") or recipe["prompt"]).strip()
         files = body.get("files") or []
         if recipe["kind"] == "ask":
-            return _json_bytes(run_ask(prompt, files))
-        return _json_bytes(run_edit(prompt, files, apply=False))
+            result = run_ask(prompt, files)
+            log_turn("ask", result, prompt)
+            return _json_bytes(result)
+        result = run_edit(prompt, files, apply=False)
+        log_turn("edit", result, prompt)
+        return _json_bytes(result)
     if path == "/api/compare" and method == "POST":
-        return _json_bytes(
-            run_compare(
-                body.get("kind") or "ask",
-                body.get("prompt") or "",
-                body.get("files") or [],
-                body.get("models"),
-            )
+        result = run_compare(
+            body.get("kind") or "ask",
+            body.get("prompt") or "",
+            body.get("files") or [],
+            body.get("models"),
         )
+        log_turn("compare", result, body.get("prompt") or "")
+        return _json_bytes(result)
     return _json_bytes({"ok": False, "error": "not found"}, 404)
 
 
@@ -192,6 +213,60 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return data if isinstance(data, dict) else {}
 
+    def _write_sse(self, data: dict[str, Any]) -> None:
+        self.wfile.write(sse_bytes(data))
+        self.wfile.flush()
+
+    def _stream_turn(self, path: str, body: dict) -> None:
+        kind = "edit" if path.endswith("/edit/stream") else "ask"
+        try:
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        prompt = (body.get("prompt") or "").strip()
+        files = body.get("files") or []
+
+        def on_begin(meta: dict[str, Any]) -> None:
+            self._write_sse({"meta": meta})
+
+        def on_delta(delta: str) -> None:
+            self._write_sse({"delta": delta})
+
+        try:
+            if not prompt:
+                raise SessionError("empty prompt")
+            if kind == "edit":
+                result = run_edit(
+                    prompt,
+                    files,
+                    apply=False,
+                    tier=body.get("tier"),
+                    model=body.get("model"),
+                    on_begin=on_begin,
+                    on_delta=on_delta,
+                )
+            else:
+                result = run_ask(
+                    prompt,
+                    files,
+                    tier=body.get("tier"),
+                    model=body.get("model"),
+                    on_begin=on_begin,
+                    on_delta=on_delta,
+                )
+            log_turn(kind, result, prompt)
+            self._write_sse({"done": True, **result})
+        except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:
+            self._write_sse({"done": True, "ok": False, "error": str(exc)})
+        except OSError:
+            return
+
     def do_GET(self) -> None:  # noqa: N802
         self._handle("GET")
 
@@ -205,6 +280,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
+        if path in STREAM_PATHS and method == "POST":
+            self._stream_turn(path, self._body())
+            return
         if path.startswith("/api/"):
             status, payload, ctype = handle_api(method, path, query, self._body() if method in {"POST", "PUT"} else {})
             self._send(status, payload, ctype)

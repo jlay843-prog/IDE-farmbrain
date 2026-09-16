@@ -7,6 +7,8 @@ const state = {
   tab: "session",
   editor: null,
   compareModels: [],
+  busy: false,
+  logPath: "",
 };
 
 async function api(path, opts = {}) {
@@ -312,19 +314,22 @@ function ensureEditor() {
 function setTab(name) {
   state.tab = name;
   $("#session").style.display = name === "session" ? "block" : "none";
+  $("#log").style.display = name === "log" ? "block" : "none";
   $("#diff").style.display = name === "diff" ? "block" : "none";
   $("#editor").style.display = name === "file" ? "block" : "none";
   document.querySelectorAll(".center-tabs .btn").forEach((b) => {
     b.classList.toggle("primary", b.dataset.tab === name);
   });
+  if (name === "log") refreshLog().catch((err) => toast(String(err.message || err)));
 }
 
 function addMessage(role, text, meta = "") {
   const el = document.createElement("div");
   el.className = `msg ${role}`;
-  el.innerHTML = `${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}<div>${escapeHtml(text)}</div>`;
+  el.innerHTML = `${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}<div class="body">${escapeHtml(text)}</div>`;
   $("#session").appendChild(el);
   $("#session").scrollTop = $("#session").scrollHeight;
+  return el;
 }
 
 function escapeHtml(s) {
@@ -484,6 +489,7 @@ async function refreshAll() {
   const desk = await api("/api/desk");
   state.session = desk.state;
   state.files = desk.files || [];
+  if (desk.log_path) state.logPath = desk.log_path;
   renderTiers();
   renderProjects();
   renderFiles(state.files);
@@ -494,10 +500,99 @@ async function refreshAll() {
   renderChips(status, mesh);
   renderPicker(pickerFromStatus(status));
   renderMesh(mesh);
+  await refreshLog();
+}
+
+function renderLog(data) {
+  const box = $("#log");
+  if (!box) return;
+  const path = (data && data.path) || state.logPath || "%LOCALAPPDATA%\\Forge\\sessions.jsonl";
+  const turns = (data && data.turns) || [];
+  box.innerHTML = "";
+  const cap = document.createElement("p");
+  cap.className = "log-path";
+  cap.textContent = path;
+  box.appendChild(cap);
+  if (!turns.length) {
+    const empty = document.createElement("p");
+    empty.className = "status-line";
+    empty.textContent = "No turns yet. Ask or Edit from the desk or CLI — both append to this file.";
+    box.appendChild(empty);
+    return;
+  }
+  for (const row of turns) {
+    const el = document.createElement("div");
+    el.className = "log-row";
+    const bits = [row.at, row.kind, row.model, row.backend, row.gpu].filter(Boolean);
+    if (row.files && row.files.length) bits.push(row.files.join(", "));
+    if (row.applied) bits.push("applied");
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = bits.join(" · ");
+    const prompt = document.createElement("div");
+    prompt.className = "prompt";
+    prompt.textContent = row.prompt || "(no prompt stored)";
+    el.appendChild(meta);
+    el.appendChild(prompt);
+    box.appendChild(el);
+  }
+}
+
+async function refreshLog() {
+  try {
+    const data = await api("/api/log?limit=80");
+    if (data.path) state.logPath = data.path;
+    renderLog(data);
+  } catch (err) {
+    const box = $("#log");
+    if (!box) return;
+    box.innerHTML = `<p class="status-line">${escapeHtml(String(err.message || err))}</p>`;
+  }
 }
 
 function selectedFiles() {
   return state.selectedFile ? [state.selectedFile] : [];
+}
+
+function parseSseBuffer(buf) {
+  const frames = buf.split("\n\n");
+  const rest = frames.pop() || "";
+  const events = [];
+  for (const frame of frames) {
+    const line = frame.split("\n").find((l) => l.startsWith("data:"));
+    if (!line) continue;
+    const raw = line.replace(/^data:\s?/, "");
+    try {
+      events.push(JSON.parse(raw));
+    } catch {
+      events.push({ error: raw });
+    }
+  }
+  return { events, rest };
+}
+
+async function readSse(res, onEvent) {
+  if (!res.body || !res.body.getReader) {
+    const text = await res.text();
+    const parsed = parseSseBuffer(text.endsWith("\n\n") ? text : text + "\n\n");
+    for (const ev of parsed.events) onEvent(ev);
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parsed = parseSseBuffer(buf);
+    buf = parsed.rest;
+    for (const ev of parsed.events) onEvent(ev);
+  }
+  if (buf.trim()) {
+    const parsed = parseSseBuffer(buf + "\n\n");
+    for (const ev of parsed.events) onEvent(ev);
+  }
 }
 
 async function send(kind) {
@@ -505,11 +600,17 @@ async function send(kind) {
   if (!prompt) return;
   const files = selectedFiles();
   addMessage("user", prompt, files.length ? files.join(", ") : "no file context");
+  const bubble = addMessage("assistant", "", "streaming…");
+  bubble.classList.add("streaming");
+  const bodyEl = bubble.querySelector(".body");
+  const metaEl = bubble.querySelector(".meta");
   setBusy(true);
-  toast(kind === "edit" ? "Asking coder for a diff…" : "Asking local Qwen…");
+  toast(kind === "edit" ? "Streaming coder diff…" : "Streaming local Qwen…");
+  let text = "";
   try {
-    const data = await api(kind === "edit" ? "/api/edit" : "/api/ask", {
+    const res = await fetch(kind === "edit" ? "/api/edit/stream" : "/api/ask/stream", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt,
         files,
@@ -517,19 +618,44 @@ async function send(kind) {
         model: kind === "edit" ? $("#codeModel").value || undefined : $("#chatModel").value || undefined,
       }),
     });
-    const meta = `${data.model} · ${data.backend} · ${data.gpu}`;
-    addMessage("assistant", data.text, meta);
-    if (kind === "edit") renderDiff(data.text);
-    toast(meta);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(data.error || res.statusText);
+    }
+    await readSse(res, (ev) => {
+      if (ev.meta) {
+        const meta = `${ev.meta.model || ""} · ${ev.meta.backend || ""} · ${ev.meta.gpu || ""}`.trim();
+        if (metaEl && meta) metaEl.textContent = meta;
+        toast(meta || "streaming…");
+      }
+      if (ev.delta) {
+        text += ev.delta;
+        if (bodyEl) bodyEl.textContent = text;
+        $("#session").scrollTop = $("#session").scrollHeight;
+      }
+      if (ev.error) throw new Error(ev.error);
+      if (ev.done && ev.text && !text) text = ev.text;
+      if (ev.done && ev.model && metaEl) {
+        metaEl.textContent = `${ev.model} · ${ev.backend || ""} · ${ev.gpu || ""}`;
+      }
+    });
+    if (bodyEl) bodyEl.textContent = text;
+    if (kind === "edit") renderDiff(text);
+    toast(metaEl ? metaEl.textContent : "done");
+    await refreshLog();
   } catch (err) {
-    addMessage("assistant", String(err.message || err), "error");
+    if (bodyEl && !bodyEl.textContent) bodyEl.textContent = String(err.message || err);
+    else addMessage("assistant", String(err.message || err), "error");
+    if (metaEl) metaEl.textContent = "error";
     toast(String(err.message || err));
   } finally {
+    bubble.classList.remove("streaming");
     setBusy(false);
   }
 }
 
 function setBusy(busy) {
+  state.busy = !!busy;
   ["askBtn", "editBtn", "compareAskBtn", "compareEditBtn"].forEach((id) => {
     const el = $("#" + id);
     if (el) el.disabled = busy;
@@ -572,6 +698,7 @@ async function sendCompare(kind) {
     }
     if (kind === "edit" && data.text) renderDiff(data.text);
     toast(`Winner: ${judge.pick_model || ""} — not applied`);
+    await refreshLog();
   } catch (err) {
     addMessage("assistant", String(err.message || err), "error");
     toast(String(err.message || err));
@@ -592,6 +719,7 @@ async function applyDiff() {
     });
     toast("Applied " + (out.changed || []).join(", "));
     await refreshAll();
+    await refreshLog();
   } catch (err) {
     toast(String(err.message || err));
   }
@@ -608,6 +736,7 @@ async function runRecipe(id) {
     if (data.text) {
       addMessage("assistant", data.text, `${data.model || id} · recipe`);
       if (data.kind === "edit") renderDiff(data.text);
+      await refreshLog();
     } else {
       toast(data.url || data.path || id);
     }
@@ -671,6 +800,7 @@ window.addEventListener("load", async () => {
     toast(String(err.message || err));
   }
   setInterval(() => {
+    if (state.busy) return;
     refreshAll().catch((err) => toast(String(err.message || err)));
   }, 20000);
 });

@@ -10,7 +10,7 @@ from pathlib import Path
 from forge import __version__
 from forge.edit import apply_diff
 from forge.hosts import TIERS, backend_for_tier
-from forge.io import configure_stdio, out
+from forge.io import configure_stdio, out, write_chunk
 from forge.launch import launch
 from forge.log import log_turn
 from forge.probe import (
@@ -189,21 +189,48 @@ def cmd_which(args: argparse.Namespace) -> int:
     return 0
 
 
+def _stream_begin(json_mode: bool):
+    def on_begin(meta: dict) -> None:
+        if json_mode:
+            return
+        out(f"# {meta.get('model')}  {meta.get('backend')}  {meta.get('gpu')}")
+
+    return on_begin
+
+
+def _stream_delta(json_mode: bool):
+    def on_delta(delta: str) -> None:
+        if json_mode:
+            return
+        write_chunk(delta)
+
+    return on_delta
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
+    json_mode = bool(getattr(args, "json", False))
     try:
-        result = run_ask(args.prompt, args.file, tier=args.tier, model=args.model)
-    except (SessionError, FileNotFoundError, ValueError) as exc:
+        result = run_ask(
+            args.prompt,
+            args.file,
+            tier=args.tier,
+            model=args.model,
+            on_begin=_stream_begin(json_mode),
+            on_delta=_stream_delta(json_mode),
+        )
+    except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:
         out(str(exc), err=True)
         return 1
+    if not json_mode:
+        write_chunk("\n")
     log_turn("ask", result, args.prompt)
-    if args.json:
+    if json_mode:
         return _print_json(result)
-    out(f"# {result['model']}  {result['backend']}  {result['gpu']}")
-    out(result["text"])
     return 0
 
 
 def cmd_edit(args: argparse.Namespace) -> int:
+    json_mode = False
     try:
         result = run_edit(
             args.prompt,
@@ -211,13 +238,14 @@ def cmd_edit(args: argparse.Namespace) -> int:
             apply=False,
             tier=args.tier,
             model=args.model,
+            on_begin=_stream_begin(json_mode),
+            on_delta=_stream_delta(json_mode),
         )
-    except (SessionError, FileNotFoundError, ValueError) as exc:
+    except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:
         out(str(exc), err=True)
         return 1
+    write_chunk("\n")
     log_turn("edit", result, args.prompt)
-    out(f"# {result['model']}  {result['backend']}  {result['gpu']}")
-    out(result["text"])
     if result.get("protected"):
         out("")
         out(PROTECTED_HINT)

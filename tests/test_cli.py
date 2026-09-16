@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from forge.cli import build_parser, main
-from forge.log import log_turn
+from forge.log import log_turn, read_turns
 
 
 def test_parser_has_week1_commands():
@@ -94,6 +94,38 @@ def test_session_log_appends_jsonl(tmp_path, monkeypatch):
     text = path.read_text(encoding="utf-8")
     assert "qwen3-coder:30b" in text
     assert '"kind": "ask"' in text
+    rows = read_turns(10)
+    assert rows[0]["prompt"] == "hello"
+
+
+def test_ask_streams_tokens_to_stdout(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+
+    def fake_ask(prompt, files, **kwargs):
+        if kwargs.get("on_begin"):
+            kwargs["on_begin"]({"model": "qwen3.8:27b", "backend": "cuda", "gpu": "5070"})
+        if kwargs.get("on_delta"):
+            kwargs["on_delta"]("Hel")
+            kwargs["on_delta"]("lo")
+        return {
+            "ok": True,
+            "kind": "ask",
+            "tier": "chat",
+            "model": "qwen3.8:27b",
+            "backend": "cuda",
+            "gpu": "5070",
+            "text": "Hello",
+            "files": [],
+        }
+
+    monkeypatch.setattr("forge.cli.run_ask", fake_ask)
+    assert main(["ask", "hi"]) == 0
+    out = capsys.readouterr().out
+    assert "qwen3.8:27b" in out
+    assert "Hello" in out
+    log = (tmp_path / "data" / "sessions.jsonl").read_text(encoding="utf-8")
+    assert "hi" in log
+    assert '"kind": "ask"' in log
 
 
 def test_electron_names_itself_before_single_instance_lock():
@@ -110,3 +142,13 @@ def test_launch_script_passes_repo_root_not_main_cjs():
     assert "desktop\\main.cjs" not in text
     assert "node_modules\\electron\\dist\\electron.exe" in text.replace("/", "\\") or "electron.exe" in text
     assert "ArgumentList @($Root)" in text
+
+
+def test_desk_ui_has_log_tab_and_stream_client():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    assert 'data-tab="log"' in html
+    assert 'id="log"' in html
+    assert "/api/ask/stream" in js
+    assert "/api/edit/stream" in js

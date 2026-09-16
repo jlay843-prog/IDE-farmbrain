@@ -16,8 +16,18 @@ def configure_stdio() -> None:
 
 
 def out(text: str = "", *, err: bool = False) -> None:
+    write_chunk(text + "\n", err=err)
+
+
+def write_chunk(text: str, *, err: bool = False) -> None:
+    """Write without forcing a newline. Used for streamed model tokens."""
+    if text == "":
+        return
     stream = sys.stderr if err else sys.stdout
     try:
-        print(text, file=stream)
+        stream.write(text)
+        stream.flush()
     except UnicodeEncodeError:
-        print(text.encode(stream.encoding or "ascii", errors="replace").decode(stream.encoding or "ascii"), file=stream)
+        encoded = text.encode(stream.encoding or "ascii", errors="replace").decode(stream.encoding or "ascii")
+        stream.write(encoded)
+        stream.flush()
