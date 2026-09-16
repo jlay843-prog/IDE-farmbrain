@@ -87,7 +87,7 @@ def test_files_search_returns_paths_not_contents(tmp_path, monkeypatch):
 
     root = tmp_path / "proj"
     secret = "do-not-send-this-to-the-model"
-    (root / "src").mkdir()
+    (root / "src").mkdir(parents=True)
     (root / "src" / "hello.py").write_text(secret + "\n", encoding="utf-8")
     (root / "node_modules" / "pkg").mkdir(parents=True)
     (root / "node_modules" / "pkg" / "hello.js").write_text(secret + "\n", encoding="utf-8")
