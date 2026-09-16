@@ -15,9 +15,15 @@
           <span>FORGE</span>
         </div>
         <div class="tiers">
-          <button class="tier" data-tier="code">AMD coder</button>
-          <button class="tier" data-tier="chat">CUDA chat</button>
-          <button class="tier" data-tier="burst">5090 burst</button>
+          <label class="picker">
+            <span>Code</span>
+            <select id="codeModel" aria-label="Code model for Edit"></select>
+          </label>
+          <label class="picker">
+            <span>Ask</span>
+            <select id="chatModel" aria-label="Question model for Ask"></select>
+          </label>
+          <button class="tier" data-tier="burst" id="burstBtn" type="button">5090 burst</button>
         </div>
         <div id="chips" class="chips"></div>
       </header>

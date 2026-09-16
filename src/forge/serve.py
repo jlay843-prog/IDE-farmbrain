@@ -12,7 +12,7 @@ from forge.context import list_tree, resolve_under
 from forge.edit import apply_diff
 from forge.hosts import LINKS
 from forge.launch import launch, link_catalog
-from forge.probe import mesh_snapshot, models_snapshot, status_snapshot
+from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
@@ -77,7 +77,12 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
     if path == "/api/state" and method == "GET":
         return _json_bytes(load_state())
     if path == "/api/use" and method == "POST":
-        return _json_bytes(set_tier(body["tier"], body.get("model")))
+        tier = body["tier"]
+        if tier == "burst":
+            resolved = resolve_session("burst", body.get("model"))
+            if resolved.get("blocked"):
+                raise SessionError("burst is blocked while Vast is active on the 5090")
+        return _json_bytes(set_tier(tier, body.get("model")))
     if path == "/api/open" and method == "POST":
         return _json_bytes(set_workspace(body["path"]))
     if path == "/api/ask" and method == "POST":

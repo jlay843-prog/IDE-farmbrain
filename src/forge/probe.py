@@ -358,7 +358,70 @@ def models_snapshot() -> dict[str, Any]:
         "models": rows,
         "backends": snap["backends"],
         "farm_ok": snap["farm"]["ok"],
+        "picker": picker_from_models({"vast_active": snap["vast_active"], "models": rows}),
     }
+
+
+TALK_SKIP = ("embed", "nomic", "rerank", "whisper", "tts", "clip", "moondream")
+PICKER_DEFAULTS = {
+    "code": "qwen3-coder:30b",
+    "chat": "qwen3.8:27b",
+    "burst": "aria-qwen38:27b",
+}
+
+
+def is_talk_model(name: str) -> bool:
+    low = (name or "").lower()
+    if not low:
+        return False
+    return not any(part in low for part in TALK_SKIP)
+
+
+def picker_from_models(snap: dict[str, Any] | None) -> dict[str, Any]:
+    """Group live /api/tags rows for the code vs ask picker. No toml fork."""
+    snap = snap or {}
+    vast = bool(snap.get("vast_active"))
+    groups: dict[str, list[dict[str, Any]]] = {"code": [], "chat": [], "burst": []}
+    for row in snap.get("models") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "")
+        if not is_talk_model(name):
+            continue
+        role = str(row.get("role") or "")
+        if role not in groups:
+            continue
+        groups[role].append(
+            {
+                "name": name,
+                "loaded": bool(row.get("loaded")),
+                "backend": row.get("backend"),
+                "label": row.get("label"),
+                "gpu": row.get("gpu"),
+                "ok": bool(row.get("backend_ok")),
+                "blocked": role == "burst" and vast,
+                "tier": role,
+            }
+        )
+    for tier, rows in groups.items():
+        default = PICKER_DEFAULTS[tier]
+        prefix = default.split(":")[0]
+        rows.sort(
+            key=lambda r: (
+                not r["loaded"],
+                0 if r["name"] == default or r["name"].startswith(prefix) else 1,
+                r["name"],
+            )
+        )
+    return {
+        "vast_active": vast,
+        "groups": groups,
+        "defaults": {"code": PICKER_DEFAULTS["code"], "chat": PICKER_DEFAULTS["chat"]},
+    }
+
+
+def picker_snapshot() -> dict[str, Any]:
+    return picker_from_models(models_snapshot())
 
 
 def mesh_snapshot() -> dict[str, Any]:

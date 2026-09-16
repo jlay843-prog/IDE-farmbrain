@@ -51,9 +51,86 @@ function addChip(box, text, cls) {
 }
 
 function renderTiers() {
-  document.querySelectorAll(".tier").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tier === state.session.tier);
-  });
+  const burst = $("#burstBtn");
+  if (burst) {
+    burst.classList.toggle("active", state.session.tier === "burst" && !burst.disabled);
+  }
+}
+
+function pickerFromStatus(status) {
+  const groups = { code: [], chat: [], burst: [] };
+  const skip = /embed|nomic|rerank|whisper|tts|clip|moondream/i;
+  for (const be of Object.values((status && status.backends) || {})) {
+    const role = be.role;
+    if (!groups[role]) continue;
+    const running = be.running || [];
+    for (const m of be.models || []) {
+      if (!m.name || skip.test(m.name)) continue;
+      const loaded = running.some((r) => (r.name || "").startsWith((m.name || "").split(":")[0]));
+      groups[role].push({
+        name: m.name,
+        loaded,
+        gpu: be.gpu,
+        ok: be.ok,
+        blocked: role === "burst" && !!status.vast_active,
+        tier: role,
+      });
+    }
+  }
+  return {
+    vast_active: !!(status && status.vast_active),
+    groups,
+    defaults: { code: "qwen3-coder:30b", chat: "qwen3.8:27b" },
+  };
+}
+
+function renderPicker(picker) {
+  const groups = (picker && picker.groups) || {};
+  const defaults = (picker && picker.defaults) || {};
+  fillSelect(
+    $("#codeModel"),
+    groups.code || [],
+    state.session.code_model || defaults.code || "qwen3-coder:30b",
+    "No AMD code models"
+  );
+  fillSelect(
+    $("#chatModel"),
+    groups.chat || [],
+    state.session.chat_model || defaults.chat || "qwen3.8:27b",
+    "No CUDA chat models"
+  );
+  const burst = $("#burstBtn");
+  if (burst) {
+    const blocked = !!(picker && picker.vast_active);
+    burst.disabled = blocked;
+    burst.title = blocked ? "Blocked while Vast is live" : "Use the tower 5090 (burst only)";
+    burst.classList.toggle("active", state.session.tier === "burst" && !blocked);
+  }
+}
+
+function fillSelect(sel, rows, current, emptyText) {
+  if (!sel) return;
+  if (document.activeElement === sel) return;
+  const names = rows.map((r) => r.name);
+  const chosen = names.includes(current) ? current : (rows[0] && rows[0].name) || "";
+  sel.innerHTML = "";
+  if (!rows.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = emptyText;
+    sel.appendChild(opt);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  for (const row of rows) {
+    const opt = document.createElement("option");
+    opt.value = row.name;
+    const pulse = row.loaded ? "● " : "";
+    opt.textContent = `${pulse}${row.name}`;
+    if (row.name === chosen) opt.selected = true;
+    sel.appendChild(opt);
+  }
 }
 
 function renderProjects() {
@@ -347,9 +424,10 @@ async function refreshAll() {
   renderFiles(state.files);
   renderRecipes(desk.recipes);
   renderLinks(desk.links);
-  toast(`${desk.state.tier} · ${desk.state.last_model || ""} · ${desk.state.workspace || "no workspace"}`);
+  toast(`edit ${desk.state.code_model || ""} · ask ${desk.state.chat_model || ""} · ${desk.state.workspace || "no workspace"}`);
   const [status, mesh] = await Promise.all([api("/api/status"), api("/api/mesh")]);
   renderChips(status, mesh);
+  renderPicker(pickerFromStatus(status));
   renderMesh(mesh);
 }
 
@@ -368,7 +446,12 @@ async function send(kind) {
   try {
     const data = await api(kind === "edit" ? "/api/edit" : "/api/ask", {
       method: "POST",
-      body: JSON.stringify({ prompt, files }),
+      body: JSON.stringify({
+        prompt,
+        files,
+        tier: kind === "edit" ? "code" : "chat",
+        model: kind === "edit" ? $("#codeModel").value || undefined : $("#chatModel").value || undefined,
+      }),
     });
     const meta = `${data.model} · ${data.backend} · ${data.gpu}`;
     addMessage("assistant", data.text, meta);
@@ -422,11 +505,25 @@ async function runRecipe(id) {
 }
 
 function bind() {
-  document.querySelectorAll(".tier").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      await api("/api/use", { method: "POST", body: JSON.stringify({ tier: btn.dataset.tier }) });
-      await refreshAll();
-    });
+  $("#codeModel").addEventListener("change", async () => {
+    const model = $("#codeModel").value;
+    if (!model) return;
+    await api("/api/use", { method: "POST", body: JSON.stringify({ tier: "code", model }) });
+    await refreshAll();
+  });
+  $("#chatModel").addEventListener("change", async () => {
+    const model = $("#chatModel").value;
+    if (!model) return;
+    await api("/api/use", { method: "POST", body: JSON.stringify({ tier: "chat", model }) });
+    await refreshAll();
+  });
+  $("#burstBtn").addEventListener("click", async () => {
+    try {
+      await api("/api/use", { method: "POST", body: JSON.stringify({ tier: "burst" }) });
+    } catch (err) {
+      toast(String(err.message || err));
+    }
+    await refreshAll();
   });
   $("#askBtn").addEventListener("click", () => send("ask"));
   $("#editBtn").addEventListener("click", () => send("edit"));

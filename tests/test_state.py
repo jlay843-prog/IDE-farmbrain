@@ -11,7 +11,10 @@ def test_workspace_and_assign(tmp_path: Path, monkeypatch):
     assert Path(saved["workspace"]) == project.resolve()
     saved = st.set_tier("chat", "qwen3.8:27b")
     assert saved["tier"] == "chat"
-    assert saved["projects"][0]["model"] == "qwen3.8:27b"
+    assert saved["chat_model"] == "qwen3.8:27b"
+    saved = st.set_tier("code", "qwen3-coder:30b")
+    assert saved["code_model"] == "qwen3-coder:30b"
+    assert saved["projects"][0]["model"] == "qwen3-coder:30b"
     other = tmp_path / "other"
     other.mkdir()
     assigned = st.assign_project(str(other), tier="code", model="qwen3-coder:30b")

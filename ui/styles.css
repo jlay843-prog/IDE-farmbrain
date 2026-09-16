@@ -49,6 +49,27 @@ body {
 .brand span { color: var(--ember); }
 
 .chips, .tiers { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.picker select {
+  max-width: 220px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.picker select:disabled { opacity: 0.55; }
 .chip, .tier, .btn, .link, .recipe {
   border: 1px solid var(--line);
   background: var(--panel-2);

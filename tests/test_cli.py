@@ -48,6 +48,27 @@ def test_which_prints_live_backend(monkeypatch, tmp_path, capsys):
     assert "11437" in out
 
 
+def test_use_without_tier_lists_picker_when_not_tty(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "forge.cli.picker_snapshot",
+        lambda: {
+            "vast_active": False,
+            "groups": {
+                "code": [{"name": "qwen3-coder:30b", "loaded": True, "gpu": "GTT", "tier": "code", "blocked": False}],
+                "chat": [{"name": "qwen3.8:27b", "loaded": True, "gpu": "5070", "tier": "chat", "blocked": False}],
+                "burst": [],
+            },
+        },
+    )
+    monkeypatch.setattr("forge.cli.sys.stdin.isatty", lambda: False)
+    assert main(["use"]) == 0
+    out = capsys.readouterr().out
+    assert "qwen3-coder:30b" in out
+    assert "qwen3.8:27b" in out
+    assert "not a TTY" in out
+
+
 def test_models_quiet_lists_loaded_only(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     monkeypatch.setattr(

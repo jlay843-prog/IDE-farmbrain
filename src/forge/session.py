@@ -15,10 +15,17 @@ class SessionError(RuntimeError):
     pass
 
 
-def active_session(tier: str | None = None, model: str | None = None) -> dict:
+def active_session(tier: str | None = None, model: str | None = None, *, purpose: str | None = None) -> dict:
     state = load_state()
-    chosen_tier = tier or state.get("tier") or "code"
-    chosen_model = model or (None if tier else state.get("last_model"))
+    if purpose == "ask":
+        chosen_tier = tier or "chat"
+        chosen_model = model or state.get("chat_model") or "qwen3.8:27b"
+    elif purpose == "edit":
+        chosen_tier = tier or "code"
+        chosen_model = model or state.get("code_model") or "qwen3-coder:30b"
+    else:
+        chosen_tier = tier or state.get("tier") or "code"
+        chosen_model = model or (None if tier else state.get("last_model"))
     resolved = resolve_session(chosen_tier, chosen_model)
     if resolved["blocked"]:
         raise SessionError("burst is blocked while Vast is active on the 5090")
@@ -41,7 +48,7 @@ def run_ask(
     model: str | None = None,
     workspace: Path | None = None,
 ) -> dict:
-    sess = active_session(tier, model)
+    sess = active_session(tier, model, purpose="ask")
     root = workspace or workspace_path()
     named = read_files(root, files or []) if root and files else []
     reply = chat(sess["base"], sess["model"], build_messages(ASK_SYSTEM, prompt, named))
@@ -68,7 +75,7 @@ def run_edit(
     model: str | None = None,
     workspace: Path | None = None,
 ) -> dict:
-    sess = active_session(tier, model)
+    sess = active_session(tier, model, purpose="edit")
     root = workspace or workspace_path()
     if root is None:
         raise SessionError("no workspace - run forge open <path> first")

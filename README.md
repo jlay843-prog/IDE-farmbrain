@@ -37,13 +37,16 @@ forge
 forge which
 forge status
 forge models -q
-forge use code
+forge use
+forge use chat --model qwen3.8:27b
 forge open C:\Users\jlay\Grok\forge
 forge ask "What does cli.py do?" --file src/forge/cli.py
 forge edit "Add a --quiet flag to status" --file src/forge/cli.py
 forge recipe list
 forge launch vault
 ```
+
+`forge ask` uses the **Ask** (EVO CUDA) model. `forge edit` uses the **Code** (EVO AMD) model. `forge use` with no args lists live `/api/tags` and, on a TTY, lets you pick a number. `forge models --pick` is the same picker. Burst/5090 stays blocked while Vast is live.
 
 Bare `forge` prints the pinned session and help. Turns are appended to `%LOCALAPPDATA%\Forge\sessions.jsonl`.
 
@@ -64,7 +67,7 @@ Farm API calls send `X-Farm-Local-Key` from `FORGE_FARM_TOKEN` or `C:\Users\jlay
 ## Desk panes
 
 1. **Project** — workspace, file list, vault / Aether / Lumen / AI-PM / Farm Brain launchers
-2. **Session** — ask, edit, apply/reject, Monaco file pane
+2. **Session** — ask, edit, apply/reject, Monaco file pane. Header **Code** / **Ask** dropdowns are live Ollama tags (AMD vs CUDA). Edit uses Code; Ask uses the question model.
 3. **Mesh** — EVO/Tower Ollama hosts plus live **BC-250** boards from Farm Brain `/api/compute/dials` (not a static host list). Drag an EVO/Tower model onto a project to assign it. BC-250 pills are inventory only. **Ray** status + last jobs deep-link to the Ray Dashboard (`:8265`) and Farm Brain Compute; **Ontology** (`:8000`) is the SQLite world model, not a Ray job graph.
 
 State lives in `%LOCALAPPDATA%\Forge\state.json`.

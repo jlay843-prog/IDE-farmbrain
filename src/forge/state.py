@@ -32,6 +32,8 @@ def default_state() -> dict[str, Any]:
         "workspace": "",
         "tier": DEFAULT_TIER,
         "last_model": "qwen3-coder:30b",
+        "code_model": "qwen3-coder:30b",
+        "chat_model": "qwen3.8:27b",
         "projects": [],
     }
 
@@ -70,9 +72,17 @@ def set_tier(tier: str, model: str | None = None) -> dict[str, Any]:
     state["tier"] = tier
     if model:
         state["last_model"] = model
+        if tier == "code":
+            state["code_model"] = model
+        elif tier == "chat":
+            state["chat_model"] = model
+    elif tier == "code":
+        state["last_model"] = state.get("code_model") or "qwen3-coder:30b"
+    elif tier == "chat":
+        state["last_model"] = state.get("chat_model") or "qwen3.8:27b"
     workspace = state.get("workspace") or ""
     if workspace:
-        upsert_project(state, workspace, tier=tier, model=model)
+        upsert_project(state, workspace, tier=tier, model=model or state.get("last_model"))
     return save_state(state)
 
 

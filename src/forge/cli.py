@@ -13,7 +13,14 @@ from forge.hosts import TIERS, backend_for_tier
 from forge.io import configure_stdio, out
 from forge.launch import launch
 from forge.log import log_turn
-from forge.probe import farm_hosts_from_dials, mesh_snapshot, models_snapshot, resolve_session, status_snapshot
+from forge.probe import (
+    farm_hosts_from_dials,
+    mesh_snapshot,
+    models_snapshot,
+    picker_snapshot,
+    resolve_session,
+    status_snapshot,
+)
 from forge.recipes import RECIPES, get_recipe
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
@@ -52,6 +59,8 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_models(args: argparse.Namespace) -> int:
+    if getattr(args, "pick", False):
+        return _pick_model(None)
     snap = models_snapshot()
     if args.json:
         return _print_json(snap)
@@ -67,6 +76,8 @@ def cmd_models(args: argparse.Namespace) -> int:
 
 
 def cmd_use(args: argparse.Namespace) -> int:
+    if args.tier is None or (getattr(args, "pick", False) and not args.model):
+        return _pick_model(args.tier)
     tier = args.tier
     be = backend_for_tier(tier)
     if tier == "burst":
@@ -76,6 +87,56 @@ def cmd_use(args: argparse.Namespace) -> int:
             return 2
     state = set_tier(tier, args.model or be.default_model)
     out(f"using {tier} -> {state['last_model']} on {be.label} ({be.gpu}) {be.base}")
+    return 0
+
+
+def _pick_model(tier_filter: str | None) -> int:
+    picker = picker_snapshot()
+    headings = {
+        "code": "Code  EVO AMD  (Edit / coding)",
+        "chat": "Ask   EVO CUDA (questions)",
+        "burst": "Burst Tower 5090",
+    }
+    rows: list[dict] = []
+    for key in ("code", "chat", "burst"):
+        if tier_filter and key != tier_filter:
+            continue
+        group = (picker.get("groups") or {}).get(key) or []
+        out(headings[key])
+        if key == "burst" and picker.get("vast_active"):
+            out("  blocked while Vast is live")
+        if not group:
+            out("  (no talk models on this host)")
+            continue
+        for row in group:
+            rows.append(row)
+            mark = "*" if row.get("loaded") else " "
+            block = "  [blocked]" if row.get("blocked") else ""
+            out(f"  {len(rows):2}) [{mark}] {row['name']}  {row.get('gpu') or ''}{block}")
+        out("")
+    if not rows:
+        out("no live models from /api/tags", err=True)
+        return 1
+    if not sys.stdin.isatty():
+        out("not a TTY — pick with: forge use code --model qwen3-coder:30b")
+        out("                 or: forge use chat --model qwen3.8:27b")
+        return 0
+    raw = input("Pick a model number: ").strip()
+    try:
+        idx = int(raw)
+    except ValueError:
+        out("not a number", err=True)
+        return 1
+    if idx < 1 or idx > len(rows):
+        out("out of range", err=True)
+        return 1
+    choice = rows[idx - 1]
+    if choice.get("blocked"):
+        out("burst blocked: Vast is active on the 5090.", err=True)
+        return 2
+    state = set_tier(choice["tier"], choice["name"])
+    be = backend_for_tier(choice["tier"])
+    out(f"using {choice['tier']} -> {state['last_model']} on {be.label} ({be.gpu}) {be.base}")
     return 0
 
 
@@ -272,11 +333,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("models", help="list tags + running models by host/GPU")
     p.add_argument("--json", action="store_true")
     p.add_argument("-q", "--quiet", action="store_true", help="only show loaded models")
+    p.add_argument("--pick", action="store_true", help="interactive picker from live /api/tags")
     p.set_defaults(func=cmd_models)
 
-    p = sub.add_parser("use", help="pin session to code|chat|burst")
-    p.add_argument("tier", choices=sorted(TIERS))
+    p = sub.add_parser("use", help="pin session, or pick a live model")
+    p.add_argument("tier", nargs="?", choices=sorted(TIERS))
     p.add_argument("--model", default=None)
+    p.add_argument("--pick", action="store_true", help="interactive picker from live /api/tags")
     p.set_defaults(func=cmd_use)
 
     p = sub.add_parser("open", help="set workspace folder")
