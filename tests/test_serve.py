@@ -20,6 +20,8 @@ def test_desk_bootstrap():
     assert "log_path" in data
     assert "tree" in data
     assert "crumbs" in data["tree"]
+    assert isinstance(data.get("protected"), bool)
+    assert "protected_hint" in data
 
 
 def test_sse_bytes_are_event_stream_frames():
@@ -96,6 +98,36 @@ def test_apply_endpoint_accepts_hunk_ids(tmp_path, monkeypatch):
     text = (root / "hello.py").read_text(encoding="utf-8")
     assert 'return "hi"' in text
     assert "return 2" in text
+
+
+def test_apply_farm_brain_requires_confirm(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    from forge.state import set_workspace
+
+    root = tmp_path / "farm-brain"
+    root.mkdir()
+    (root / "hello.py").write_text("x = 1\n", encoding="utf-8")
+    set_workspace(root)
+    desk_status, desk_payload, _ = handle_api("GET", "/api/desk", {}, {})
+    assert desk_status == 200
+    desk = json.loads(desk_payload)
+    assert desk["protected"] is True
+    assert "QC gate" in desk["protected_hint"]
+    diff = """--- a/hello.py
++++ b/hello.py
+@@ -1 +1 @@
+-x = 1
++x = 2
+"""
+    blocked, payload, _ = handle_api("POST", "/api/apply", {}, {"diff": diff})
+    assert blocked == 409
+    assert b"confirm_protected" in payload
+    assert (root / "hello.py").read_text(encoding="utf-8") == "x = 1\n"
+    ok, applied, _ = handle_api("POST", "/api/apply", {}, {"diff": diff, "confirm_protected": True})
+    assert ok == 200
+    data = json.loads(applied)
+    assert data["changed"] == ["hello.py"]
+    assert (root / "hello.py").read_text(encoding="utf-8") == "x = 2\n"
 
 
 def test_desk_ask_appends_session_log(tmp_path, monkeypatch):

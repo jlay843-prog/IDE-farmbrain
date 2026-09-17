@@ -28,3 +28,7 @@ def test_protected_name(tmp_path: Path, monkeypatch):
     farm.mkdir()
     st.set_workspace(farm)
     assert st.is_protected_workspace() is True
+    nearby = tmp_path / "farm-brain-notes"
+    nearby.mkdir()
+    st.set_workspace(nearby)
+    assert st.is_protected_workspace() is False

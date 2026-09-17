@@ -135,6 +135,7 @@ def workspace_path() -> Path | None:
 
 
 def is_protected_workspace(path: Path | None = None) -> bool:
+    """True only when the workspace folder itself is named farm-brain."""
     target = path or workspace_path()
     if target is None:
         return False

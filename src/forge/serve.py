@@ -23,6 +23,7 @@ from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_
 from forge.recipes import RECIPES, get_recipe
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
+    PROTECTED_HINT,
     assign_project,
     is_protected_workspace,
     load_state,
@@ -78,6 +79,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
     if path == "/api/desk":
         root = workspace_path()
         tree = tree_listing(root, "") if root else {"cwd": "", "parent": None, "crumbs": [], "entries": []}
+        protected = bool(root and is_protected_workspace(root))
         return _json_bytes(
             {
                 "ok": True,
@@ -89,6 +91,8 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 "workspace": str(root) if root else "",
                 "log_path": str(log_path()),
                 "git": _git_or_empty(root),
+                "protected": protected,
+                "protected_hint": PROTECTED_HINT if protected else "",
             }
         )
     if path == "/api/log":

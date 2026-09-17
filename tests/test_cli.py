@@ -219,3 +219,16 @@ def test_desk_ui_has_change_list():
     assert "Apply hunk" in js
     assert "Reject hunk" in js
     assert "hunks" in js
+
+
+def test_desk_ui_has_farm_brain_qc_confirm():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    assert 'id="qcGate"' in html
+    assert 'id="qcCheck"' in html
+    assert "I understand QC" in html
+    assert "requestQcConfirm" in js
+    assert "confirm_protected" in js
+    assert "window.confirm" not in js
+    assert "farm-brain QC" in js

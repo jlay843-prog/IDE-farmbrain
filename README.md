@@ -53,7 +53,7 @@ forge git commit -m "message"
 
 `forge ask` uses the **Ask** (EVO CUDA) model. `forge edit` uses the **Code** (EVO AMD) model. `forge use` with no args lists live `/api/tags` and, on a TTY, lets you pick a number. `forge models --pick` is the same picker. Burst/5090 stays blocked while Vast is live.
 
-`forge compare ask|edit` runs the same prompt on up to 3 live models, then **qwen3-coder:30b** on EVO AMD `:11437` picks a winner. Desk: check models under the composer, then **Compare ask** / **Compare edit**. The 30B pick is the WINNER line (not applied). farm-brain still needs QC confirm before Apply.
+`forge compare ask|edit` runs the same prompt on up to 3 live models, then **qwen3-coder:30b** on EVO AMD `:11437` picks a winner. Desk: check models under the composer, then **Compare ask** / **Compare edit**. The 30B pick is the WINNER line (not applied). farm-brain Apply still needs the desk QC confirm (CLI: `--i-understand-qc`).
 
 Bare `forge` prints the pinned session and help. Turns are appended to `%LOCALAPPDATA%\Forge\sessions.jsonl` from **both** the CLI and the desk (Ask / Edit / recipes). The desk **Log** tab lists recent turns from that file.
 
@@ -78,7 +78,7 @@ Farm API calls send `X-Farm-Local-Key` from `FORGE_FARM_TOKEN` or `C:\Users\jlay
 ## Desk panes
 
 1. **Project** — workspace, file tree with breadcrumbs and `..`, path search, checkboxes to **name multiple files** for Ask/Edit, thin **Git** status / diff / local commit, vault / Aether / Lumen / AI-PM / Farm Brain launchers. Search and the tree return paths only; Ask/Edit still send only the named files you check, never the whole repo. Electron **Open workspace** uses the native folder picker (browser/prompt fallback). Git is local only: no push, no PR flow, no invented remotes. Untracked files and empty history are shown; Commit writes a local commit from the listed paths.
-2. **Session** — Chat streams ask/edit tokens live. **Log** is `%LOCALAPPDATA%\Forge\sessions.jsonl` (CLI + desk). **Edit** can call read/list/grep (no shell) and shows those tool lines in the bubble. After **Edit**, the Diff tab lists every file and each **hunk** with Apply hunk / Reject hunk. **Apply remaining** writes pending hunks; Reject drops the reply. Git diffs stay review-only. Header **Code** / **Ask** dropdowns are live Ollama tags (AMD vs CUDA). Edit uses Code; Ask uses the question model.
+2. **Session** — Chat streams ask/edit tokens live. **Log** is `%LOCALAPPDATA%\Forge\sessions.jsonl` (CLI + desk). **Edit** can call read/list/grep (no shell) and shows those tool lines in the bubble. After **Edit**, the Diff tab lists every file and each **hunk** with Apply hunk / Reject hunk. **Apply remaining** writes pending hunks; Reject drops the reply. Git diffs stay review-only. A **farm-brain** workspace shows the QC banner and a desk confirm (checkbox + Confirm apply) before any write — Forge will not auto-apply; `window.confirm` is not the gate. CLI still needs `--i-understand-qc`. Header **Code** / **Ask** dropdowns are live Ollama tags (AMD vs CUDA). Edit uses Code; Ask uses the question model.
 3. **Mesh** — EVO/Tower Ollama hosts plus live **BC-250** boards from Farm Brain `/api/compute/dials` (not a static host list). Drag an EVO/Tower model onto a project to assign it. BC-250 pills are inventory only. **Ray** status + last jobs deep-link to the Ray Dashboard (`:8265`) and Farm Brain Compute; **Ontology** (`:8000`) is the SQLite world model, not a Ray job graph.
 
 State lives in `%LOCALAPPDATA%\Forge\state.json`.

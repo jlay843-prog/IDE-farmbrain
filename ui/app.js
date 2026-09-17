@@ -20,7 +20,11 @@ const state = {
   compareModels: [],
   busy: false,
   logPath: "",
+  protected: false,
+  protectedHint: "",
 };
+
+let qcWaiter = null;
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -36,6 +40,71 @@ function toast(text) {
   $("#statusLine").textContent = text;
 }
 
+function renderQcBanner() {
+  const el = $("#qcBanner");
+  if (!el) return;
+  el.hidden = !state.protected;
+  if (state.protected) {
+    el.textContent =
+      state.protectedHint ||
+      "farm-brain QC gate — Forge will not auto-apply. Confirm in the desk before any write. The existing coder QC gate still applies.";
+  }
+}
+
+function requestQcConfirm(detail) {
+  const gate = $("#qcGate");
+  const check = $("#qcCheck");
+  const confirmBtn = $("#qcConfirm");
+  const detailEl = $("#qcDetail");
+  if (!gate || !check || !confirmBtn) return Promise.resolve(false);
+  if (qcWaiter) qcWaiter(false);
+  check.checked = false;
+  confirmBtn.disabled = true;
+  if (detailEl) {
+    detailEl.textContent =
+      detail ||
+      "This workspace is farm-brain. Forge will not auto-apply. The existing coder QC gate still applies.";
+  }
+  gate.hidden = false;
+  try {
+    check.focus();
+  } catch {
+    /* ignore */
+  }
+  return new Promise((resolve) => {
+    qcWaiter = (ok) => {
+      qcWaiter = null;
+      gate.hidden = true;
+      resolve(!!ok);
+    };
+  });
+}
+
+function bindQc() {
+  const check = $("#qcCheck");
+  const confirmBtn = $("#qcConfirm");
+  const cancelBtn = $("#qcCancel");
+  if (check) {
+    check.addEventListener("change", () => {
+      if (confirmBtn) confirmBtn.disabled = !check.checked;
+    });
+  }
+  if (confirmBtn) {
+    confirmBtn.addEventListener("click", () => {
+      if (check && !check.checked) return;
+      if (qcWaiter) qcWaiter(true);
+    });
+  }
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", () => {
+      if (qcWaiter) qcWaiter(false);
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && qcWaiter) qcWaiter(false);
+  });
+}
+
 function renderChips(status, mesh) {
   const box = $("#chips");
   box.innerHTML = "";
@@ -46,6 +115,9 @@ function renderChips(status, mesh) {
   if (bc.length) {
     const live = bc.filter((n) => n.ok).length;
     addChip(box, `BC-250 ${live}/${bc.length}`, live ? "ok" : "down");
+  }
+  if (state.protected) {
+    addChip(box, "farm-brain QC", "warn");
   }
   const ray = mesh && mesh.ray;
   if (ray) {
@@ -777,7 +849,9 @@ function renderDiff(text, changes, hunks) {
   }
   const hint = document.createElement("p");
   hint.className = "status-line";
-  hint.textContent = "Apply or reject each hunk. Apply in the header writes remaining hunks.";
+  hint.textContent = state.protected
+    ? "farm-brain QC gate on. Apply hunk / Apply remaining opens the desk confirm — Forge will not auto-apply."
+    : "Apply or reject each hunk. Apply in the header writes remaining hunks.";
   body.appendChild(hint);
   let currentPath = null;
   let section = null;
@@ -969,7 +1043,10 @@ async function refreshAll() {
   const nextWs = (desk.state && desk.state.workspace) || desk.workspace || "";
   const wsChanged = prevWs !== nextWs;
   state.session = desk.state;
+  state.protected = !!desk.protected;
+  state.protectedHint = desk.protected_hint || "";
   if (desk.log_path) state.logPath = desk.log_path;
+  renderQcBanner();
   if (wsChanged) {
     state.cwd = "";
     state.searchQuery = "";
@@ -1167,6 +1244,10 @@ async function send(kind) {
       if (ev.done && ev.text && !text) text = ev.text;
       if (ev.done && ev.changes) changes = ev.changes;
       if (ev.done && ev.hunks) hunks = ev.hunks;
+      if (ev.done && ev.protected) {
+        state.protected = true;
+        renderQcBanner();
+      }
       if (ev.done && ev.model && metaEl) {
         metaEl.textContent = `${ev.model} · ${ev.backend || ""} · ${ev.gpu || ""}`;
       }
@@ -1242,11 +1323,18 @@ async function sendCompare(kind) {
 async function applyHunks(ids, single) {
   if (state.gitDiff) return toast("Git diffs are for review. Commit from Project → Git; Apply is for coder edits.");
   if (!state.lastDiff) return toast("No diff to apply");
-  const confirmProtected = /farm-brain/i.test(state.session.workspace || "")
-    ? window.confirm("This workspace is farm-brain. Apply anyway? QC gate still applies.")
-    : false;
+  if (state.protected) {
+    const hunkNote = ids && ids.length ? `Write hunk ${ids.join(", ")}` : "Write remaining hunks";
+    const ok = await requestQcConfirm(
+      `${hunkNote} to this farm-brain workspace? Forge will not auto-apply. The existing coder QC gate still applies.`
+    );
+    if (!ok) {
+      toast("Apply cancelled — farm-brain still needs QC confirm.");
+      return;
+    }
+  }
   try {
-    const payload = { diff: state.lastDiff, confirm_protected: confirmProtected };
+    const payload = { diff: state.lastDiff, confirm_protected: !!state.protected };
     if (ids) payload.hunks = ids;
     const out = await api("/api/apply", {
       method: "POST",
@@ -1293,6 +1381,7 @@ async function runRecipe(id) {
 }
 
 function bind() {
+  bindQc();
   $("#codeModel").addEventListener("change", async () => {
     const model = $("#codeModel").value;
     if (!model) return;
