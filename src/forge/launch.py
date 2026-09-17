@@ -6,21 +6,29 @@ import os
 import subprocess
 import webbrowser
 from pathlib import Path
+from urllib.parse import quote
 
 from forge.hosts import LINKS
+from forge.vault import resolve_note, vault_root
 
 
-def launch(target: str, note: str = "") -> dict:
+def launch(target: str, note: str = "", url: str = "") -> dict:
     key = (target or "").strip().lower()
     if key in {"vault", "obsidian"}:
-        vault = Path(LINKS["vault"])
-        if note:
-            candidate = vault / note
-            if candidate.exists():
+        vault = vault_root()
+        rel = (note or "").strip()
+        if rel:
+            try:
+                candidate = resolve_note(rel)
+            except (FileNotFoundError, ValueError) as exc:
+                return {"ok": False, "target": "obsidian", "error": str(exc)}
+            uri = "obsidian://open?vault=FarmBrainVault&file=" + quote(rel, safe="/")
+            try:
+                os.startfile(uri)  # type: ignore[attr-defined]
+                return {"ok": True, "target": "obsidian", "url": uri, "path": str(candidate), "note": rel}
+            except OSError:
                 return _open_path(candidate)
         uri = "obsidian://open?vault=FarmBrainVault"
-        if note:
-            uri += f"&file={note.replace(' ', '%20')}"
         try:
             os.startfile(uri)  # type: ignore[attr-defined]
             return {"ok": True, "target": "obsidian", "url": uri}

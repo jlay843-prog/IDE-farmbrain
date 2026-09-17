@@ -192,3 +192,22 @@ def test_files_search_returns_paths_not_contents(tmp_path, monkeypatch):
     assert all("text" not in row for row in data["entries"])
     raw = payload.decode("utf-8")
     assert secret not in raw
+
+
+def test_vault_search_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    vault = tmp_path / "FarmBrainVault"
+    (vault / "01-Daily").mkdir(parents=True)
+    (vault / "01-Daily" / "note.md").write_text("# hello vault search\n", encoding="utf-8")
+    monkeypatch.setenv("FORGE_VAULT", str(vault))
+    status, payload, _ = handle_api("GET", "/api/vault/search", {"q": ["hello vault"]}, {})
+    assert status == 200
+    data = json.loads(payload)
+    assert data["ok"] is True
+    assert data["entries"][0]["path"] == "01-Daily/note.md"
+    assert "hello vault" in data["entries"][0]["snippet"]
+    desk_status, desk_payload, _ = handle_api("GET", "/api/desk", {}, {})
+    assert desk_status == 200
+    desk = json.loads(desk_payload)
+    assert desk["vault"]["exists"] is True
+    assert "text" not in data["entries"][0]

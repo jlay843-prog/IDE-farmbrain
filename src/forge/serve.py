@@ -18,6 +18,7 @@ from forge.git import snapshot as git_snapshot
 from forge.edit import apply_diff
 from forge.hosts import LINKS
 from forge.launch import launch, link_catalog
+from forge.vault import search_vault, vault_info
 from forge.log import log_path, log_turn, read_turns
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
@@ -93,6 +94,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 "git": _git_or_empty(root),
                 "protected": protected,
                 "protected_hint": PROTECTED_HINT if protected else "",
+                "vault": vault_info(),
             }
         )
     if path == "/api/log":
@@ -200,8 +202,13 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes({"ok": True, "path": body["path"]})
     if path == "/api/links":
         return _json_bytes({"ok": True, "links": link_catalog(), "raw": LINKS})
+    if path == "/api/vault":
+        return _json_bytes(vault_info())
+    if path == "/api/vault/search":
+        q = (query.get("q") or [""])[0]
+        return _json_bytes(search_vault(q))
     if path == "/api/launch" and method == "POST":
-        return _json_bytes(launch(body["target"], body.get("note") or ""))
+        return _json_bytes(launch(body["target"], body.get("note") or "", body.get("url") or ""))
     if path == "/api/recipes" and method == "GET":
         return _json_bytes({"ok": True, "recipes": RECIPES})
     if path.startswith("/api/recipes/") and path.endswith("/run") and method == "POST":

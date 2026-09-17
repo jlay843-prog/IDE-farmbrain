@@ -1,4 +1,4 @@
-"""forge status|models|use|open|which|ask|edit|git|serve|projects|recipe|launch"""
+"""forge status|models|use|open|which|ask|edit|git|serve|projects|recipe|launch|vault"""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from forge.edit import apply_diff, format_change_list, format_hunk_list
 from forge.hosts import TIERS, backend_for_tier
 from forge.io import configure_stdio, out, write_chunk
 from forge.launch import launch
+from forge.vault import search_vault, vault_info
 from forge.log import log_turn
 from forge.probe import (
     farm_hosts_from_dials,
@@ -386,13 +387,51 @@ def cmd_compare(args: argparse.Namespace) -> int:
 
 
 def cmd_launch(args: argparse.Namespace) -> int:
-    result = launch(args.target, args.note or "")
+    result = launch(args.target, args.note or "", getattr(args, "url", "") or "")
     if args.json:
         return _print_json(result)
     if not result.get("ok"):
         out(result.get("error", "launch failed"), err=True)
         return 1
     out(str(result.get("url") or result.get("path") or "ok"))
+    return 0
+
+
+def cmd_vault(args: argparse.Namespace) -> int:
+    if args.open:
+        result = launch("vault", args.open)
+        if args.json:
+            return _print_json(result)
+        if not result.get("ok"):
+            out(result.get("error", "open failed"), err=True)
+            return 1
+        out(str(result.get("url") or result.get("path") or args.open))
+        return 0
+    query = (args.query or "").strip()
+    if not query:
+        info = vault_info()
+        if args.json:
+            return _print_json(info)
+        out(info.get("path") or "")
+        if not info.get("exists"):
+            out("vault missing", err=True)
+            return 1
+        return 0
+    found = search_vault(query)
+    if args.json:
+        return _print_json(found)
+    if not found.get("exists"):
+        out(found.get("error") or "vault missing", err=True)
+        return 1
+    rows = found.get("entries") or []
+    if not rows:
+        out("no notes match")
+        return 0
+    for row in rows:
+        snippet = (row.get("snippet") or "").replace("\n", " ")
+        out(f"{row.get('path')}\t{snippet}")
+    if found.get("truncated"):
+        out("(truncated)")
     return 0
 
 
@@ -525,8 +564,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("launch", help="open vault, Aether, Lumen, AI-PM, Farm Brain")
     p.add_argument("target")
     p.add_argument("--note", default="")
+    p.add_argument("--url", default="", help="last-URL handoff for Aether or Lumen")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_launch)
+
+    p = sub.add_parser("vault", help="search FarmBrainVault notes, or open one")
+    p.add_argument("query", nargs="?", default="")
+    p.add_argument("--open", default="", help="open a named note in Obsidian")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_vault)
 
     p = sub.add_parser("serve", help="desk HTTP API on loopback")
     p.add_argument("--host", default="127.0.0.1")

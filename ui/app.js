@@ -6,6 +6,9 @@ const state = {
   cwd: "",
   searchQuery: "",
   searchTimer: 0,
+  vaultQuery: "",
+  vaultTimer: 0,
+  vault: { path: "", exists: false, name: "FarmBrainVault" },
   selectedFile: "",
   selectedFiles: [],
   lastDiff: "",
@@ -1064,6 +1067,72 @@ function renderLinks(links) {
   }
 }
 
+function renderVaultMeta(vault) {
+  state.vault = vault || state.vault;
+  const el = $("#vaultMeta");
+  if (!el) return;
+  const info = state.vault || {};
+  if (!info.exists) {
+    el.textContent = (info.path || "FarmBrainVault") + " — missing";
+    return;
+  }
+  el.textContent = info.path || "FarmBrainVault";
+}
+
+function renderVaultHits(found) {
+  const box = $("#vaultHits");
+  if (!box) return;
+  box.innerHTML = "";
+  const q = (found && found.query) || state.vaultQuery || "";
+  if (!q) return;
+  const rows = (found && found.entries) || [];
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "status-line";
+    empty.textContent = found && found.error ? found.error : "No notes match.";
+    box.appendChild(empty);
+    return;
+  }
+  for (const row of rows) {
+    const btn = document.createElement("button");
+    btn.className = "file vault-hit";
+    btn.type = "button";
+    btn.title = row.path;
+    btn.innerHTML = `<span>${escapeHtml(row.path)}</span><span class="path-hint">${escapeHtml(row.snippet || "")}</span>`;
+    btn.addEventListener("click", async () => {
+      const out = await api("/api/launch", {
+        method: "POST",
+        body: JSON.stringify({ target: "vault", note: row.path }),
+      });
+      toast(out.url || out.path || row.path);
+    });
+    box.appendChild(btn);
+  }
+  if (found && found.truncated) {
+    const more = document.createElement("p");
+    more.className = "status-line";
+    more.textContent = "More notes match — narrow the search.";
+    box.appendChild(more);
+  }
+}
+
+async function runVaultSearch(q) {
+  state.vaultQuery = (q || "").trim();
+  if (!state.vaultQuery) {
+    renderVaultHits({ query: "", entries: [] });
+    return;
+  }
+  const found = await api(`/api/vault/search?q=${encodeURIComponent(state.vaultQuery)}`);
+  renderVaultHits(found);
+}
+
+function queueVaultSearch(q) {
+  window.clearTimeout(state.vaultTimer);
+  state.vaultTimer = window.setTimeout(() => {
+    runVaultSearch(q).catch((err) => toast(String(err.message || err)));
+  }, 180);
+}
+
 async function refreshAll() {
   const desk = await api("/api/desk");
   const prevWs = state.session.workspace || "";
@@ -1086,6 +1155,7 @@ async function refreshAll() {
   renderProjects();
   renderRecipes(desk.recipes);
   renderLinks(desk.links);
+  renderVaultMeta(desk.vault);
   if (desk.git) renderGit(desk.git);
   else await refreshGit();
   if (state.searchQuery) {
@@ -1482,6 +1552,16 @@ function bind() {
       if (e.key === "Escape") {
         search.value = "";
         runSearch("").catch((err) => toast(String(err.message || err)));
+      }
+    });
+  }
+  const vaultSearch = $("#vaultSearch");
+  if (vaultSearch) {
+    vaultSearch.addEventListener("input", () => queueVaultSearch(vaultSearch.value));
+    vaultSearch.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        vaultSearch.value = "";
+        runVaultSearch("").catch((err) => toast(String(err.message || err)));
       }
     });
   }

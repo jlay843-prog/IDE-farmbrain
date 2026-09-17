@@ -7,7 +7,7 @@ from forge.log import log_turn, read_turns
 def test_parser_has_week1_commands():
     parser = build_parser()
     names = parser._subparsers._group_actions[0].choices
-    for name in ("status", "models", "use", "open", "which", "ask", "edit", "compare", "git", "serve", "projects", "recipe", "launch"):
+    for name in ("status", "models", "use", "open", "which", "ask", "edit", "compare", "git", "serve", "projects", "recipe", "launch", "vault"):
         assert name in names
 
 
@@ -245,3 +245,28 @@ def test_desk_ui_has_mesh_pulse_and_blocked_burst_badge():
     assert "20000" in js
     assert ".badge.blocked" in css
     assert ".mesh-pulse" in css
+
+
+def test_desk_ui_has_vault_search():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    assert 'id="vaultSearch"' in html
+    assert 'id="vaultHits"' in html
+    assert "runVaultSearch" in js
+    assert 'target: "vault"' in js
+    assert "Search vault notes" in html
+
+
+def test_vault_cli_search(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    vault = tmp_path / "FarmBrainVault"
+    (vault / "01-Daily").mkdir(parents=True)
+    (vault / "01-Daily" / "Agent-Readout.md").write_text("# QC gate\n", encoding="utf-8")
+    monkeypatch.setenv("FORGE_VAULT", str(vault))
+    assert main(["vault", "QC gate"]) == 0
+    out = capsys.readouterr().out
+    assert "01-Daily/Agent-Readout.md" in out
+    assert main(["vault", "--json"]) == 0
+    info = capsys.readouterr().out
+    assert "FarmBrainVault" in info

@@ -180,6 +180,20 @@ body {
   font-size: 12px;
 }
 #fileSearch:focus { outline: 1px solid var(--copper); }
+#vaultSearch {
+  width: 100%;
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  background: #140f0c;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+#vaultSearch:focus { outline: 1px solid var(--copper); }
+.vault-hit { display: block; width: 100%; }
+#vaultHits { margin: 0 0 10px; }
 .crumbs {
   display: flex;
   flex-wrap: wrap;
