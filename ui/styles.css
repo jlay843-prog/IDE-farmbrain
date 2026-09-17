@@ -254,6 +254,37 @@ pre.diff { margin: 0; font-family: var(--mono); font-size: 12px; white-space: pr
   color: var(--muted);
 }
 .badge.on { color: var(--ok); border-color: #2f5b2a; }
+.badge.blocked {
+  color: var(--warn);
+  border-color: #6a5420;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.node.blocked { border-color: #6a5420; }
+.tier.blocked { opacity: 0.7; cursor: not-allowed; }
+.mesh-pulse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mesh-pulse .live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px var(--ok);
+  animation: pulse 1.4s infinite;
+  flex: 0 0 auto;
+}
+.mesh-pulse.warn .live-dot {
+  background: var(--warn);
+  box-shadow: 0 0 8px var(--warn);
+}
 .job-list { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 11px; }
 .job-list li { margin: 3px 0; }
 .model-pill.locked { cursor: default; }

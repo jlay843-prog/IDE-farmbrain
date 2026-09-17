@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Any
 
 from forge.hosts import (
@@ -20,6 +21,8 @@ from forge.hosts import (
     backend_for_tier,
 )
 from forge.httputil import request_json
+
+MESH_PULSE_MS = 20000
 
 
 def is_loaded(name: str, running: set[str]) -> bool:
@@ -160,6 +163,7 @@ def farm_hosts_from_dials(dials: dict[str, Any] | None) -> list[dict[str, Any]]:
                 "models": models,
                 "running": running,
                 "blocked": False,
+                "pulse": bool(n.get("online") or n.get("ok") or n.get("ollama") or n.get("ollama_ok")),
                 "ray": bool(n.get("ray")),
                 "ollama": bool(n.get("ollama") or n.get("ollama_ok")),
                 "posture": n.get("posture") or "",
@@ -443,6 +447,7 @@ def mesh_snapshot() -> dict[str, Any]:
                 "models": be.get("models") or [],
                 "running": be.get("running") or [],
                 "blocked": be["id"] == "burst" and snap["vast_active"],
+                "pulse": bool(be["ok"]) and not (be["id"] == "burst" and snap["vast_active"]),
             }
         )
     nodes.extend(farm_nodes)
@@ -462,6 +467,8 @@ def mesh_snapshot() -> dict[str, Any]:
         "farm_hosts": farm_nodes,
         "ray": ray,
         "ontology": ontology,
+        "pulse_at": datetime.now(timezone.utc).isoformat(),
+        "pulse_ms": MESH_PULSE_MS,
     }
 
 

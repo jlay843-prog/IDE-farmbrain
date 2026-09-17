@@ -1,6 +1,57 @@
 from forge.probe import compact_ray_jobs, farm_hosts_from_dials, ontology_from_payloads, ray_from_payloads
 
 
+def test_mesh_pulse_and_blocked_burst(monkeypatch):
+    monkeypatch.setattr(
+        "forge.probe.status_snapshot",
+        lambda: {
+            "vast_active": True,
+            "farm": {"ok": True},
+            "fleet": {},
+            "dials": {},
+            "backends": {
+                "amd": {
+                    "id": "amd",
+                    "label": "EVO AMD",
+                    "gpu": "GTT",
+                    "host_id": "evo",
+                    "role": "code",
+                    "base": "http://192.168.68.103:11437",
+                    "ok": True,
+                    "models": [{"name": "qwen3-coder:30b"}],
+                    "running": [{"name": "qwen3-coder:30b"}],
+                },
+                "burst": {
+                    "id": "burst",
+                    "label": "Tower 5090",
+                    "gpu": "RTX 5090",
+                    "host_id": "tower",
+                    "role": "burst",
+                    "base": "http://192.168.68.106:11434",
+                    "ok": True,
+                    "models": [{"name": "aria-qwen38:27b"}],
+                    "running": [],
+                },
+            },
+        },
+    )
+    monkeypatch.setattr("forge.probe.farm_hosts_from_dials", lambda dials: [])
+    monkeypatch.setattr("forge.probe.ray_jobs_snapshot", lambda modes=None: {"head_ok": True})
+    monkeypatch.setattr("forge.probe.ontology_snapshot", lambda: {"ok": True})
+    from forge.probe import MESH_PULSE_MS, mesh_snapshot
+
+    mesh = mesh_snapshot()
+    assert mesh["vast_active"] is True
+    assert mesh["pulse_ms"] == MESH_PULSE_MS == 20000
+    assert mesh["pulse_at"]
+    burst = next(row for row in mesh["nodes"] if row["id"] == "burst")
+    amd = next(row for row in mesh["nodes"] if row["id"] == "amd")
+    assert burst["blocked"] is True
+    assert burst["pulse"] is False
+    assert amd["blocked"] is False
+    assert amd["pulse"] is True
+
+
 def test_farm_hosts_from_live_dials_not_invented():
     dials = {
         "ok": True,
@@ -43,6 +94,8 @@ def test_farm_hosts_from_live_dials_not_invented():
     assert rows[0]["role"] == "farm"
     assert rows[0]["running"][0]["name"] == "gemma4:12b"
     assert rows[1]["ray"] is True
+    assert rows[0]["pulse"] is True
+    assert rows[0]["blocked"] is False
 
 
 def test_farm_hosts_empty_when_inventory_missing():

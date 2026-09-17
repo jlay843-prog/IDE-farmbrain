@@ -189,7 +189,9 @@ function renderPicker(picker) {
   if (burst) {
     const blocked = !!(picker && picker.vast_active);
     burst.disabled = blocked;
+    burst.textContent = blocked ? "5090 blocked" : "5090 burst";
     burst.title = blocked ? "Blocked while Vast is live" : "Use the tower 5090 (burst only)";
+    burst.classList.toggle("blocked", blocked);
     burst.classList.toggle("active", state.session.tier === "burst" && !blocked);
   }
   renderComparePicks(picker);
@@ -907,13 +909,35 @@ function renderDiff(text, changes, hunks) {
   setTab("diff");
 }
 
+function formatPulseAt(iso) {
+  if (!iso) return "waiting";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return String(iso);
+  return dt.toLocaleTimeString();
+}
+
+function renderMeshPulse(mesh) {
+  const el = document.createElement("p");
+  const blocked = !!(mesh && mesh.vast_active);
+  el.className = "mesh-pulse" + (blocked ? " warn" : "");
+  const secs = Math.round(((mesh && mesh.pulse_ms) || 20000) / 1000);
+  const when = formatPulseAt(mesh && mesh.pulse_at);
+  el.innerHTML = `<span class="live-dot" aria-hidden="true"></span><span>Live pulse · ${escapeHtml(when)} · ${secs}s${blocked ? " · Vast holds 5090" : ""}</span>`;
+  return el;
+}
+
 function renderMesh(mesh) {
   const box = $("#mesh");
   box.innerHTML = "";
   if (!mesh || mesh.error) {
-    box.innerHTML = `<p class="status-line">${escapeHtml((mesh && mesh.error) || "Mesh unavailable.")}</p>`;
+    box.appendChild(renderMeshPulse(mesh || {}));
+    const err = document.createElement("p");
+    err.className = "status-line";
+    err.textContent = (mesh && mesh.error) || "Mesh unavailable.";
+    box.appendChild(err);
     return;
   }
+  box.appendChild(renderMeshPulse(mesh));
   box.appendChild(renderRayCard(mesh.ray || {}));
   box.appendChild(renderOntologyCard(mesh.ontology || {}));
   const nodes = mesh.nodes || [];
@@ -925,9 +949,11 @@ function renderMesh(mesh) {
   }
   for (const node of nodes) {
     const farm = node.kind === "bc250" || node.role === "farm";
-    const assignable = !farm && (node.role === "code" || node.role === "chat" || node.role === "burst");
+    const assignable =
+      !farm && !node.blocked && (node.role === "code" || node.role === "chat" || node.role === "burst");
     const el = document.createElement("div");
-    el.className = "node" + (node.ok ? "" : " down") + (farm ? " farm" : "");
+    el.className =
+      "node" + (node.ok ? "" : " down") + (farm ? " farm" : "") + (node.blocked ? " blocked" : "");
     const pills = (node.models || [])
       .map((m) => {
         const loaded = (node.running || []).some((r) => (r.name || "").startsWith((m.name || "").split(":")[0]));
@@ -936,16 +962,17 @@ function renderMesh(mesh) {
         return `<span class="model-pill ${loaded ? "loaded" : ""} ${assignable ? "" : "locked"}"${drag}>${escapeHtml(m.name)}</span>`;
       })
       .join("");
-    const badges = farm
-      ? `<div class="badges">
-          <span class="badge ${node.ray ? "on" : ""}">${node.ray ? "Ray" : "Ray off"}</span>
+    const live = node.pulse || (node.ok && !node.blocked);
+    const extraBadges = farm
+      ? `<span class="badge ${node.ray ? "on" : ""}">${node.ray ? "Ray" : "Ray off"}</span>
           <span class="badge ${node.ollama ? "on" : ""}">${node.ollama ? "Ollama" : "Ollama off"}</span>
-          ${node.posture ? `<span class="badge">${escapeHtml(node.posture)}</span>` : ""}
-        </div>`
-      : "";
+          ${node.posture ? `<span class="badge">${escapeHtml(node.posture)}</span>` : ""}`
+      : `<span class="badge ${live ? "on" : ""}">${live ? "live" : "down"}</span>`;
+    const blockedBadge = node.blocked ? `<span class="badge blocked">blocked</span>` : "";
+    const badges = `<div class="badges">${extraBadges}${blockedBadge}</div>`;
     const sub = farm
       ? `${escapeHtml(node.detail || node.id)} · ${escapeHtml(node.base || node.lan_ip || "")}`
-      : `${escapeHtml(node.base)}${node.blocked ? " · blocked (Vast)" : ""}`;
+      : `${escapeHtml(node.base)}${node.blocked ? " · Vast holds this GPU" : ""}`;
     el.innerHTML = `<h3>${escapeHtml(node.label)} · ${escapeHtml(node.gpu)}</h3>
       <small>${sub}</small>
       ${badges}

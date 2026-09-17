@@ -232,3 +232,16 @@ def test_desk_ui_has_farm_brain_qc_confirm():
     assert "confirm_protected" in js
     assert "window.confirm" not in js
     assert "farm-brain QC" in js
+
+
+def test_desk_ui_has_mesh_pulse_and_blocked_burst_badge():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    css = (root / "ui" / "styles.css").read_text(encoding="utf-8")
+    assert "Live pulse" in js
+    assert "renderMeshPulse" in js
+    assert "badge blocked" in js
+    assert "5090 blocked" in js
+    assert "20000" in js
+    assert ".badge.blocked" in css
+    assert ".mesh-pulse" in css
