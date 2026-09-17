@@ -8,6 +8,7 @@ venv/
 !.env.example
 node_modules/
 dist/
+.eb-cache/
 .DS_Store
 Thumbs.db
 *.log

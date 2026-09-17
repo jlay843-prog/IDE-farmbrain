@@ -24,10 +24,11 @@ Windows `.exe` (W11 portable slice — no custom icon, uninstaller, or first-run
 cd C:\Users\jlay\Grok\forge
 npm install
 $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+$env:ELECTRON_BUILDER_CACHE = "$PWD\.eb-cache"
 npm run dist:win
 ```
 
-That writes `dist\Forge-0.1.0.exe`. Python 3.11+ (`py -3`) still has to be on PATH. Double-click the exe for the loopback desk. Icon / uninstaller / first-run workspace picker wait for W12.
+That writes `dist\Forge-0.1.0.exe` (portable) and `dist\win-unpacked\Forge.exe`. Python 3.11+ (`py -3`) still has to be on PATH. Double-click the exe for the loopback desk. Icon / uninstaller / first-run workspace picker wait for W12.
 
 **Double-click Forge** on the Desktop. The desk is `http://127.0.0.1:43180`.
 
