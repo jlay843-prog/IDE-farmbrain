@@ -9,6 +9,7 @@ const state = {
   vaultQuery: "",
   vaultTimer: 0,
   vault: { path: "", exists: false, name: "FarmBrainVault" },
+  handoff: { aether: { url: "", live: false }, lumen: { url: "" } },
   selectedFile: "",
   selectedFiles: [],
   lastDiff: "",
@@ -640,7 +641,8 @@ function escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function colorDiff(text) {
@@ -941,6 +943,8 @@ function renderMesh(mesh) {
     return;
   }
   box.appendChild(renderMeshPulse(mesh));
+  box.appendChild(renderHandoffCard("aether", state.handoff && state.handoff.aether));
+  box.appendChild(renderHandoffCard("lumen", state.handoff && state.handoff.lumen));
   box.appendChild(renderRayCard(mesh.ray || {}));
   box.appendChild(renderOntologyCard(mesh.ontology || {}));
   const nodes = mesh.nodes || [];
@@ -1005,6 +1009,36 @@ function renderMesh(mesh) {
   });
 }
 
+function renderHandoffCard(kind, slot) {
+  const el = document.createElement("div");
+  el.className = "node mesh-card";
+  const row = slot || {};
+  const last = row.url || (kind === "lumen" ? "http://192.168.68.103:8100" : "");
+  const live = kind === "aether" && row.live;
+  const title = kind === "aether" ? "Aether · last URL" : "Lumen · last URL";
+  const hint = kind === "aether"
+    ? (live ? "desk up · sibling browser" : "sibling browser · not absorbed")
+    : "Lumen on EVO :8100 · sibling, not absorbed";
+  el.innerHTML = `<h3>${title}</h3>
+    <small>${escapeHtml(hint)}</small>
+    <p class="handoff-url">${last ? escapeHtml(last) : "No last URL yet."}</p>
+    <input class="handoff-input" type="url" value="${escapeHtml(last)}" placeholder="${kind === "lumen" ? "/compliance/deviation or Lumen URL" : "https://…"}" aria-label="${kind} URL" />
+    <div class="mesh-actions">
+      <button type="button" class="btn primary" data-handoff="${kind}">Open in ${kind === "aether" ? "Aether" : "Lumen"}</button>
+    </div>`;
+  const input = el.querySelector(".handoff-input");
+  el.querySelector("[data-handoff]").addEventListener("click", async () => {
+    const url = (input && input.value.trim()) || last;
+    const out = await api("/api/launch", {
+      method: "POST",
+      body: JSON.stringify({ target: kind, url }),
+    });
+    toast(out.url || out.path || kind);
+    await refreshAll();
+  });
+  return el;
+}
+
 function renderRayCard(ray) {
   const el = document.createElement("div");
   el.className = "node mesh-card" + (ray.ok || ray.head_ok ? "" : " down");
@@ -1060,7 +1094,12 @@ function renderLinks(links) {
     btn.className = "link";
     btn.textContent = row.label;
     btn.addEventListener("click", async () => {
-      const out = await api("/api/launch", { method: "POST", body: JSON.stringify({ target: row.id }) });
+      const payload = { target: row.id };
+      if (row.id === "aether" || row.id === "lumen") {
+        const slot = state.handoff && state.handoff[row.id];
+        if (slot && slot.url) payload.url = slot.url;
+      }
+      const out = await api("/api/launch", { method: "POST", body: JSON.stringify(payload) });
       toast(out.url || out.path || row.label);
     });
     box.appendChild(btn);
@@ -1156,6 +1195,7 @@ async function refreshAll() {
   renderRecipes(desk.recipes);
   renderLinks(desk.links);
   renderVaultMeta(desk.vault);
+  state.handoff = desk.handoff || state.handoff;
   if (desk.git) renderGit(desk.git);
   else await refreshGit();
   if (state.searchQuery) {

@@ -35,6 +35,7 @@ def default_state() -> dict[str, Any]:
         "code_model": "qwen3-coder:30b",
         "chat_model": "qwen3.8:27b",
         "projects": [],
+        "handoff": {"aether": {"url": "", "title": "", "at": "", "source": ""}, "lumen": {"url": "", "title": "", "at": "", "source": ""}},
     }
 
 

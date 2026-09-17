@@ -211,3 +211,6 @@ def test_vault_search_endpoint(tmp_path, monkeypatch):
     desk = json.loads(desk_payload)
     assert desk["vault"]["exists"] is True
     assert "text" not in data["entries"][0]
+    assert "handoff" in desk
+    assert "aether" in desk["handoff"]
+    assert "lumen" in desk["handoff"]

@@ -8,6 +8,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import quote
 
+from forge import handoff as ho
 from forge.hosts import LINKS
 from forge.vault import resolve_note, vault_root
 
@@ -35,14 +36,36 @@ def launch(target: str, note: str = "", url: str = "") -> dict:
         except OSError:
             return _open_path(vault)
     if key == "aether":
+        try:
+            resolved = ho.resolve_launch_url("aether", url)
+        except ValueError as exc:
+            return {"ok": False, "target": "aether", "error": str(exc)}
+        dest = resolved.get("url") or ""
         script = Path(LINKS["aether_launch"])
-        if script.is_file():
+        if not script.is_file():
+            return {"ok": False, "error": f"Aether launch script missing: {script}"}
+        live = ho.aether_status()
+        launched = False
+        if not live.get("ok"):
             subprocess.Popen(
                 ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
                 cwd=str(script.parent.parent),
             )
-            return {"ok": True, "target": "aether", "path": str(script)}
-        return {"ok": False, "error": f"Aether launch script missing: {script}"}
+            launched = True
+        browse = ho.aether_browse(dest) if dest and live.get("ok") else None
+        if browse and browse.get("ok") and browse.get("title"):
+            ho.remember("aether", dest, title=browse["title"], source="aether-browse")
+        return {
+            "ok": True,
+            "target": "aether",
+            "path": str(script),
+            "url": dest or ho.AETHER_DESK,
+            "desk": ho.AETHER_DESK,
+            "launched": launched,
+            "live": bool(live.get("ok")),
+            "browse": browse,
+            "source": resolved.get("source"),
+        }
     urls = {
         "lumen": LINKS["lumen"],
         "aipm": LINKS["aipm"],
@@ -53,6 +76,14 @@ def launch(target: str, note: str = "", url: str = "") -> dict:
         "ray": LINKS["ray"],
         "raydash": LINKS["ray"],
     }
+    if key == "lumen":
+        try:
+            resolved = ho.resolve_launch_url("lumen", url)
+        except ValueError as exc:
+            return {"ok": False, "target": "lumen", "error": str(exc)}
+        dest = resolved["url"]
+        webbrowser.open(dest)
+        return {"ok": True, "target": "lumen", "url": dest, "source": resolved.get("source")}
     if key in urls:
         webbrowser.open(urls[key])
         return {"ok": True, "target": key, "url": urls[key]}

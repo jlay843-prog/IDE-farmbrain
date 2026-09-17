@@ -301,6 +301,24 @@ pre.diff { margin: 0; font-family: var(--mono); font-size: 12px; white-space: pr
 }
 .job-list { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 11px; }
 .job-list li { margin: 3px 0; }
+.handoff-url {
+  margin: 8px 0 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ember);
+  word-break: break-all;
+}
+.handoff-input {
+  width: 100%;
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  background: #140f0c;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
 .model-pill.locked { cursor: default; }
 .model-pill {
   display: inline-flex;

@@ -258,6 +258,18 @@ def test_desk_ui_has_vault_search():
     assert "Search vault notes" in html
 
 
+def test_desk_ui_has_aether_lumen_handoff():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    css = (root / "ui" / "styles.css").read_text(encoding="utf-8")
+    assert "renderHandoffCard" in js
+    assert "Aether · last URL" in js
+    assert "Lumen · last URL" in js
+    assert "Open in ${kind === \"aether\" ? \"Aether\" : \"Lumen\"}" in js or "Open in" in js
+    assert "not absorbed" in js
+    assert ".handoff-url" in css
+
+
 def test_vault_cli_search(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     vault = tmp_path / "FarmBrainVault"

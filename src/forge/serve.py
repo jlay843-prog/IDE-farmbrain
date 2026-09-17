@@ -16,6 +16,7 @@ from forge.git import commit as git_commit
 from forge.git import diff_for as git_diff
 from forge.git import snapshot as git_snapshot
 from forge.edit import apply_diff
+from forge.handoff import snapshot as handoff_snapshot, remember as remember_handoff
 from forge.hosts import LINKS
 from forge.launch import launch, link_catalog
 from forge.vault import search_vault, vault_info
@@ -95,6 +96,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 "protected": protected,
                 "protected_hint": PROTECTED_HINT if protected else "",
                 "vault": vault_info(),
+                "handoff": handoff_snapshot(),
             }
         )
     if path == "/api/log":
@@ -207,6 +209,14 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
     if path == "/api/vault/search":
         q = (query.get("q") or [""])[0]
         return _json_bytes(search_vault(q))
+    if path == "/api/handoff" and method == "GET":
+        return _json_bytes(handoff_snapshot())
+    if path == "/api/handoff" and method == "POST":
+        target = body["target"]
+        if body.get("launch"):
+            return _json_bytes(launch(target, body.get("note") or "", body.get("url") or ""))
+        remembered = remember_handoff(target, body["url"], title=body.get("title") or "", source="forge")
+        return _json_bytes({"ok": True, "handoff": remembered})
     if path == "/api/launch" and method == "POST":
         return _json_bytes(launch(body["target"], body.get("note") or "", body.get("url") or ""))
     if path == "/api/recipes" and method == "GET":
