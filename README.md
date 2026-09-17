@@ -18,6 +18,17 @@ npm install
 
 That writes a Desktop / Start Menu shortcut that opens Electron with this folder as the app (so Forge does not collide with Aether).
 
+Windows `.exe` (W11 portable slice — no custom icon, uninstaller, or first-run picker yet):
+
+```powershell
+cd C:\Users\jlay\Grok\forge
+npm install
+$env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+npm run dist:win
+```
+
+That writes `dist\Forge-0.1.0.exe`. Python 3.11+ (`py -3`) still has to be on PATH. Double-click the exe for the loopback desk. Icon / uninstaller / first-run workspace picker wait for W12.
+
 **Double-click Forge** on the Desktop. The desk is `http://127.0.0.1:43180`.
 
 One command (installs Electron if needed, then opens the desk; Edge app window if Electron is missing):

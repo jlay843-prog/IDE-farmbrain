@@ -2,11 +2,22 @@
 
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
-const root = path.join(__dirname, "..");
+function forgeRoot() {
+  if (process.env.FORGE_ROOT) return process.env.FORGE_ROOT;
+  const unpacked = path.join(__dirname, "..");
+  if (fs.existsSync(path.join(unpacked, "src", "forge"))) return unpacked;
+  if (process.resourcesPath && fs.existsSync(path.join(process.resourcesPath, "src", "forge"))) {
+    return process.resourcesPath;
+  }
+  return unpacked;
+}
+
+const root = forgeRoot();
 const port = Number(process.env.FORGE_PORT || 43180);
 const bind = process.env.FORGE_BIND || "127.0.0.1";
 const url = `http://${bind}:${port}/`;
@@ -55,6 +66,7 @@ function startServer() {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
+      FORGE_ROOT: root,
       FORGE_BIND: bind,
       FORGE_PORT: String(port),
       FORGE_DATA: process.env.FORGE_DATA || path.join(localAppData, "Forge"),

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from forge.cli import build_parser, main
@@ -268,6 +269,15 @@ def test_desk_ui_has_aether_lumen_handoff():
     assert "Open in ${kind === \"aether\" ? \"Aether\" : \"Lumen\"}" in js or "Open in" in js
     assert "not absorbed" in js
     assert ".handoff-url" in css
+
+
+def test_package_json_has_windows_portable_exe():
+    root = Path(__file__).resolve().parents[1]
+    data = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    assert "dist:win" in data["scripts"]
+    assert data["build"]["win"]["target"][0]["target"] == "portable"
+    assert "Forge-${version}.exe" in data["build"]["win"]["artifactName"]
+    assert data["build"]["forceCodeSigning"] is False
 
 
 def test_vault_cli_search(tmp_path, monkeypatch, capsys):

@@ -3,13 +3,65 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local Qwen coding desk. Models stay on the farm LAN.",
+  "author": "Jeff Lay",
   "main": "desktop/main.cjs",
   "scripts": {
     "desktop": "electron .",
     "desk": "electron .",
-    "serve": "py -3 -m forge serve"
+    "serve": "py -3 -m forge serve",
+    "dist:win": "electron-builder --win portable --x64"
   },
   "devDependencies": {
-    "electron": "^38.2.0"
+    "electron": "^38.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "farm.forge.desk",
+    "productName": "Forge",
+    "copyright": "Copyright © Jeff Lay",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "src",
+        "to": "src",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "ui",
+        "to": "ui"
+      },
+      {
+        "from": "pyproject.toml",
+        "to": "pyproject.toml"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Forge-${version}.exe",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "Forge-${version}.exe"
+    },
+    "forceCodeSigning": false,
+    "npmRebuild": false
   }
 }
