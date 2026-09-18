@@ -28,17 +28,38 @@ function Test-ForgeHealth {
 }
 
 function Start-ForgePython {
+  $pyCandidates = @()
+  if ($env:FORGE_PYTHON) { $pyCandidates += $env:FORGE_PYTHON }
+  $bundled = Join-Path $Root "python\python.exe"
+  if (Test-Path $bundled) { $pyCandidates += $bundled }
   $py = Get-Command py -ErrorAction SilentlyContinue
   if ($py) {
     return Start-Process -FilePath $py.Source -ArgumentList @(
       "-3", "-m", "forge", "serve", "--host", "127.0.0.1", "--port", $env:FORGE_PORT
     ) -PassThru -WorkingDirectory $Root -WindowStyle Hidden
   }
+  $winPy = Join-Path $env:SystemRoot "py.exe"
+  if (Test-Path $winPy) {
+    return Start-Process -FilePath $winPy -ArgumentList @(
+      "-3", "-m", "forge", "serve", "--host", "127.0.0.1", "--port", $env:FORGE_PORT
+    ) -PassThru -WorkingDirectory $Root -WindowStyle Hidden
+  }
   $python = Get-Command python -ErrorAction SilentlyContinue
-  if (-not $python) { throw "Forge needs Python 3.11+ (py -3 or python on PATH)." }
-  return Start-Process -FilePath $python.Source -ArgumentList @(
-    "-m", "forge", "serve", "--host", "127.0.0.1", "--port", $env:FORGE_PORT
-  ) -PassThru -WorkingDirectory $Root -WindowStyle Hidden
+  if ($python) { $pyCandidates += $python.Source }
+  $pyCandidates += @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Python\Python314\python.exe"),
+    (Join-Path $env:LOCALAPPDATA "Programs\Python\Python313\python.exe"),
+    (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"),
+    (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311\python.exe")
+  )
+  foreach ($exe in $pyCandidates) {
+    if ($exe -and (Test-Path $exe)) {
+      return Start-Process -FilePath $exe -ArgumentList @(
+        "-m", "forge", "serve", "--host", "127.0.0.1", "--port", $env:FORGE_PORT
+      ) -PassThru -WorkingDirectory $Root -WindowStyle Hidden
+    }
+  }
+  throw "Forge needs Python 3.11+. Set FORGE_PYTHON or install Python (PATH is not required)."
 }
 
 function Open-ForgeEdge([string]$DeskUrl) {

@@ -11,6 +11,11 @@ from urllib.parse import parse_qs, urlparse
 
 from forge import __version__
 from forge.compare import run_compare
+from forge.python_find import find_python
+from forge.term import snapshot as term_snapshot
+from forge.term import start as term_start
+from forge.term import stop as term_stop
+from forge.term import write as term_write
 from forge.context import resolve_under, search_paths, tree_listing
 from forge.git import commit as git_commit
 from forge.git import diff_for as git_diff
@@ -77,7 +82,15 @@ def _git_or_empty(root):
 
 def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, bytes, str]:
     if path == "/api/health":
-        return _json_bytes({"ok": True, "name": "forge", "version": __version__})
+        py = find_python()
+        return _json_bytes(
+            {
+                "ok": True,
+                "name": "forge",
+                "version": __version__,
+                "python": py,
+            }
+        )
     if path == "/api/desk":
         root = workspace_path()
         tree = tree_listing(root, "") if root else {"cwd": "", "parent": None, "crumbs": [], "entries": []}
@@ -97,6 +110,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 "protected_hint": PROTECTED_HINT if protected else "",
                 "vault": vault_info(),
                 "handoff": handoff_snapshot(),
+                "term": term_snapshot(),
             }
         )
     if path == "/api/log":
@@ -235,6 +249,17 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         result = run_edit(prompt, files, apply=False)
         log_turn("edit", result, prompt)
         return _json_bytes(result)
+    if path == "/api/term":
+        if method == "GET":
+            return _json_bytes(term_snapshot())
+        action = str(body.get("action") or "").strip().lower()
+        if action == "start":
+            return _json_bytes(term_start(workspace_path()))
+        if action == "write":
+            return _json_bytes(term_write(str(body.get("text") or "")))
+        if action in {"stop", "kill"}:
+            return _json_bytes(term_stop())
+        raise ValueError("term action must be start, write, or stop")
     if path == "/api/compare" and method == "POST":
         result = run_compare(
             body.get("kind") or "ask",

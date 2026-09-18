@@ -220,6 +220,37 @@ body {
 #log { height: 100%; overflow: auto; padding: 12px; display: none; }
 #diff { height: 100%; overflow: auto; padding: 12px; display: none; }
 #editor { height: 100%; display: none; }
+#term { height: 100%; display: none; flex-direction: column; min-height: 0; }
+#termOut {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  background: #140f0c;
+  color: #d8c4ae;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.term-form {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+}
+#termIn {
+  flex: 1;
+  border: 1px solid var(--line);
+  background: #140f0c;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+#termIn:focus { outline: 1px solid var(--copper); }
 .msg { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; white-space: pre-wrap; font-size: 13px; line-height: 1.45; }
 .msg.user { background: #2a2118; }
 .msg.assistant { background: #17130f; border: 1px solid var(--line); }

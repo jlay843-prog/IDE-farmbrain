@@ -16,6 +16,8 @@ This cycle (through 24 Sep) already took W0. A small **CLI polish** (Phase I) is
 
 Stay on **Cursor Grok / Composer**. Do not pin Claude or GPT for Forge.
 
+Catch-up (2026-09-17, this tree): W14 terminal pane, W15 Legion `/forge` Telegram alias, W16 docs, Aether reads `forge-handoff.json`, PATH-less Python launch, leftover v1 project-row/smoke polish. Token schedule below is unchanged.
+
 ## Sunday ritual (Plan, then one session)
 
 1. Open `C:\Users\jlay\Grok\forge` in **Plan mode**.

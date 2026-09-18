@@ -46,6 +46,10 @@
       {
         "from": "pyproject.toml",
         "to": "pyproject.toml"
+      },
+      {
+        "from": "forge.cmd",
+        "to": "forge.cmd"
       }
     ],
     "win": {

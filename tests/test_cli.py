@@ -8,7 +8,7 @@ from forge.log import log_turn, read_turns
 def test_parser_has_week1_commands():
     parser = build_parser()
     names = parser._subparsers._group_actions[0].choices
-    for name in ("status", "models", "use", "open", "which", "ask", "edit", "compare", "git", "serve", "projects", "recipe", "launch", "vault"):
+    for name in ("status", "models", "use", "open", "which", "ask", "edit", "compare", "git", "serve", "projects", "recipe", "launch", "vault", "telegram"):
         assert name in names
 
 
@@ -271,6 +271,21 @@ def test_desk_ui_has_aether_lumen_handoff():
     assert ".handoff-url" in css
 
 
+def test_desk_ui_has_local_terminal_pane():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    css = (root / "ui" / "styles.css").read_text(encoding="utf-8")
+    tools = (root / "src" / "forge" / "tools.py").read_text(encoding="utf-8")
+    assert 'data-tab="term"' in html
+    assert 'id="termOut"' in html
+    assert "ensureTerm" in js
+    assert "Jeff-only" in js
+    assert "#termOut" in css
+    assert 'ALLOWED = ("read", "list", "grep")' in tools
+    assert "import subprocess" not in tools
+
+
 def test_package_json_has_windows_installer_and_portable():
     root = Path(__file__).resolve().parents[1]
     data = json.loads((root / "package.json").read_text(encoding="utf-8"))
@@ -281,6 +296,16 @@ def test_package_json_has_windows_installer_and_portable():
     assert "Forge-${version}.exe" in data["build"]["win"]["artifactName"]
     assert data["build"]["nsis"]["uninstallDisplayName"] == "Forge"
     assert data["build"]["forceCodeSigning"] is False
+
+
+def test_telegram_cli_probe_and_text(capsys):
+    assert main(["telegram", "--text", "/forge help"]) == 0
+    help_out = capsys.readouterr().out
+    assert "not Farm Brain" in help_out
+    assert main(["telegram", "--probe", "--json"]) == 0
+    probe = json.loads(capsys.readouterr().out)
+    assert probe["farm_brain"] is False
+    assert probe["legion"] is True
 
 
 def test_vault_cli_search(tmp_path, monkeypatch, capsys):

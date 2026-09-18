@@ -16,6 +16,8 @@ def test_health_reports_v1():
     assert data["version"] == __version__
     assert data["version"] == "1.0.0"
     assert "json" in ctype
+    assert data["python"]["ok"] is True
+    assert data["python"]["exe"]
 
 
 def test_desk_bootstrap_has_no_invented_remotes():
@@ -29,7 +31,14 @@ def test_desk_bootstrap_has_no_invented_remotes():
         assert url, "remote rows must be real git config, not placeholders"
         assert "example.com" not in url
         assert "invented" not in url.lower()
-    assert data.get("protected_hint") or data.get("protected") is False or True
+    assert isinstance(data.get("protected"), bool)
+    assert isinstance(data.get("protected_hint"), str)
+    assert "term" in data
+    assert data["term"]["model_tool"] is False
+    names = [str(row.get("name") or "") for row in (data.get("state") or {}).get("projects") or []]
+    assert "forge-w7-farm-brain" not in names
+    temp_farm = [row for row in ((data.get("state") or {}).get("projects") or []) if str(row.get("name") or "") == "farm-brain" and "\\Temp\\" in str(row.get("path") or "")]
+    assert temp_farm == []
 
 
 def test_python_available_for_packaged_desk():

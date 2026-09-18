@@ -65,6 +65,7 @@
             <button class="btn" data-tab="log">Log</button>
             <button class="btn" data-tab="diff">Diff</button>
             <button class="btn" data-tab="file">File</button>
+            <button class="btn" data-tab="term">Term</button>
             <button id="applyBtn" class="btn">Apply remaining</button>
             <button id="rejectBtn" class="btn">Reject</button>
           </div>
@@ -79,6 +80,15 @@
               <div id="diffBody"></div>
             </div>
             <div id="editor"></div>
+            <div id="term">
+              <p id="termMeta" class="status-line">Local cmd in this workspace. Jeff-only — the model cannot see or run this pane.</p>
+              <pre id="termOut"></pre>
+              <form id="termForm" class="term-form">
+                <input id="termIn" type="text" autocomplete="off" spellcheck="false" placeholder="Type a command. Enter to send." aria-label="Terminal input" />
+                <button type="submit" class="btn primary">Send</button>
+                <button type="button" id="termRestart" class="btn">Restart</button>
+              </form>
+            </div>
           </div>
         </section>
 

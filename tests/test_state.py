@@ -22,6 +22,32 @@ def test_workspace_and_assign(tmp_path: Path, monkeypatch):
     assert assigned["projects"][0]["tier"] == "code"
 
 
+def test_prunes_w7_leftover_project_rows(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TEMP", str(tmp_path / "Temp"))
+    monkeypatch.setenv("TMP", str(tmp_path / "Temp"))
+    keep = tmp_path / "keep-me"
+    keep.mkdir()
+    temp = tmp_path / "Temp"
+    temp.mkdir()
+    leftover_farm = temp / "farm-brain"
+    leftover_farm.mkdir()
+    leftover_w7 = temp / "forge-w7-farm-brain"
+    leftover_w7.mkdir()
+    missing = tmp_path / "gone"
+    state = st.default_state()
+    state["projects"] = [
+        {"path": str(keep), "name": "keep-me", "tier": "code", "model": "qwen3-coder:30b"},
+        {"path": str(leftover_farm), "name": "farm-brain", "tier": "code", "model": "qwen3-coder:30b"},
+        {"path": str(leftover_w7), "name": "forge-w7-farm-brain", "tier": "code", "model": "qwen3-coder:30b"},
+        {"path": str(missing), "name": "ghost", "tier": "code", "model": "qwen3-coder:30b"},
+    ]
+    cleaned, changed = st.prune_projects(state)
+    assert changed is True
+    names = [row["name"] for row in cleaned["projects"]]
+    assert names == ["keep-me"]
+
+
 def test_protected_name(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     farm = tmp_path / "farm-brain"

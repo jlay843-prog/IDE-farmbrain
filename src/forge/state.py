@@ -9,6 +9,7 @@ from typing import Any
 
 DEFAULT_TIER = "code"
 PROTECTED_HINT = "farm-brain patches still go through the existing QC gate — Forge will not auto-apply."
+EPHEMERAL_PROJECT_NAMES = frozenset({"forge-w7-farm-brain"})
 
 
 def data_dir() -> Path:
@@ -51,6 +52,10 @@ def load_state() -> dict[str, Any]:
     merged.update(data if isinstance(data, dict) else {})
     if not isinstance(merged.get("projects"), list):
         merged["projects"] = []
+    cleaned, changed = prune_projects(merged)
+    if changed:
+        save_state(cleaned)
+        return cleaned
     return merged
 
 
@@ -116,6 +121,61 @@ def upsert_project(
         projects.insert(0, row)
     state["projects"] = projects[:24]
     return state
+
+
+def _is_leftover_project(path: Path, name: str) -> bool:
+    if name.lower() in EPHEMERAL_PROJECT_NAMES:
+        return True
+    raw = str(path).lower().replace("/", "\\")
+    if "forge-w7-farm-brain" in raw:
+        return True
+    try:
+        temp = Path(os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp").resolve()
+        resolved = path.resolve()
+    except OSError:
+        return False
+    return resolved.parent == temp and resolved.name.lower() == "farm-brain"
+
+
+def prune_projects(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Drop leftover W7 test rows and folders that no longer exist."""
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    original = list(state.get("projects") or [])
+    changed = False
+    for row in original:
+        if not isinstance(row, dict):
+            changed = True
+            continue
+        raw = str(row.get("path") or "").strip()
+        name = str(row.get("name") or Path(raw).name)
+        if not raw:
+            changed = True
+            continue
+        path = Path(raw)
+        if _is_leftover_project(path, name):
+            changed = True
+            continue
+        if not path.exists():
+            changed = True
+            continue
+        resolved = str(path.resolve())
+        key = resolved.lower()
+        if key in seen:
+            changed = True
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                **row,
+                "path": resolved,
+                "name": Path(resolved).name,
+            }
+        )
+    if len(rows) != len(original):
+        changed = True
+    state["projects"] = rows
+    return state, changed
 
 
 def assign_project(path: str, *, tier: str, model: str) -> dict[str, Any]:

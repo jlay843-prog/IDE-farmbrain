@@ -26,6 +26,8 @@ const state = {
   logPath: "",
   protected: false,
   protectedHint: "",
+  termTimer: 0,
+  termStarted: false,
 };
 
 let qcWaiter = null;
@@ -622,10 +624,51 @@ function setTab(name) {
   $("#log").style.display = name === "log" ? "block" : "none";
   $("#diff").style.display = name === "diff" ? "block" : "none";
   $("#editor").style.display = name === "file" ? "block" : "none";
+  const term = $("#term");
+  if (term) term.style.display = name === "term" ? "flex" : "none";
   document.querySelectorAll(".center-tabs .btn").forEach((b) => {
+    if (!b.dataset.tab) return;
     b.classList.toggle("primary", b.dataset.tab === name);
   });
   if (name === "log") refreshLog().catch((err) => toast(String(err.message || err)));
+  if (name === "term") ensureTerm().catch((err) => toast(String(err.message || err)));
+}
+
+function renderTerm(data) {
+  const out = $("#termOut");
+  const meta = $("#termMeta");
+  if (!out || !data) return;
+  const text = data.text || "";
+  if (out.textContent !== text) {
+    out.textContent = text;
+    out.scrollTop = out.scrollHeight;
+  }
+  if (meta) {
+    const cwd = data.cwd || state.session.workspace || "no workspace";
+    meta.textContent = data.running
+      ? `Local cmd at ${cwd} (pid ${data.pid || "?"}). Jeff-only — the model cannot see this pane.`
+      : `Terminal idle. Restart opens cmd in ${cwd}. Jeff-only — not a model tool.`;
+  }
+}
+
+async function pollTerm() {
+  if (state.tab !== "term") return;
+  const data = await api("/api/term");
+  renderTerm(data);
+}
+
+async function ensureTerm() {
+  if (!state.termStarted) {
+    const data = await api("/api/term", { method: "POST", body: JSON.stringify({ action: "start" }) });
+    state.termStarted = true;
+    renderTerm(data);
+  } else {
+    await pollTerm();
+  }
+  if (state.termTimer) clearInterval(state.termTimer);
+  state.termTimer = setInterval(() => {
+    pollTerm().catch((err) => toast(String(err.message || err)));
+  }, 500);
 }
 
 function addMessage(role, text, meta = "") {
@@ -1605,9 +1648,39 @@ function bind() {
       }
     });
   }
-  document.querySelectorAll(".center-tabs .btn").forEach((btn) => {
+  document.querySelectorAll(".center-tabs .btn[data-tab]").forEach((btn) => {
     btn.addEventListener("click", () => setTab(btn.dataset.tab));
   });
+  const termForm = $("#termForm");
+  if (termForm) {
+    termForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = $("#termIn");
+      const text = (input && input.value) || "";
+      if (!text.trim()) return;
+      try {
+        if (!state.termStarted) await ensureTerm();
+        const data = await api("/api/term", { method: "POST", body: JSON.stringify({ action: "write", text }) });
+        renderTerm(data);
+        if (input) input.value = "";
+      } catch (err) {
+        toast(String(err.message || err));
+      }
+    });
+  }
+  const termRestart = $("#termRestart");
+  if (termRestart) {
+    termRestart.addEventListener("click", async () => {
+      try {
+        const data = await api("/api/term", { method: "POST", body: JSON.stringify({ action: "start" }) });
+        state.termStarted = true;
+        renderTerm(data);
+        toast("Terminal restarted in the workspace.");
+      } catch (err) {
+        toast(String(err.message || err));
+      }
+    });
+  }
   $("#prompt").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send("ask");
   });

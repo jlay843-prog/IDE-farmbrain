@@ -36,7 +36,7 @@ That writes:
 - `dist\Forge-1.0.0.exe` — portable build (same icon)
 - `dist\win-unpacked\Forge.exe`
 
-Python 3.11+ (`py -3`) still has to be on PATH. First launch of the packaged desk opens a native **Choose your Forge workspace** folder picker when `%LOCALAPPDATA%\Forge\state.json` has no workspace yet. Loopback only (`127.0.0.1:43180`). No burst/5090 while Vast is live; farm-brain apply still needs desk QC confirm.
+Python 3.11+ is found without PATH (`py -3`, `%LOCALAPPDATA%\Programs\Python\…`, or `FORGE_PYTHON`). You can also drop `python.exe` in a `python\` folder next to Forge. First launch of the packaged desk opens a native **Choose your Forge workspace** folder picker when `%LOCALAPPDATA%\Forge\state.json` has no workspace yet. Loopback only (`127.0.0.1:43180`). No burst/5090 while Vast is live; farm-brain apply still needs desk QC confirm.
 
 **Double-click Forge** on the Desktop. The desk is `http://127.0.0.1:43180`.
 
@@ -74,6 +74,8 @@ forge vault --open 01-Daily/Agent-Readout.md
 forge git
 forge git diff src/forge/cli.py
 forge git commit -m "message"
+forge telegram --probe
+forge telegram --text "/forge status"
 ```
 
 `forge ask` uses the **Ask** (EVO CUDA) model. `forge edit` uses the **Code** (EVO AMD) model. `forge use` with no args lists live `/api/tags` and, on a TTY, lets you pick a number. `forge models --pick` is the same picker. Burst/5090 stays blocked while Vast is live.
@@ -84,7 +86,9 @@ Bare `forge` prints the pinned session and help. Turns are appended to `%LOCALAP
 
 `forge ask` and `forge edit` **stream tokens** as they arrive (`stream: true` to Ollama). The desk Chat pane does the same over `/api/ask/stream` and `/api/edit/stream`. `--json` still waits for the full object.
 
-`forge git` prints local status (branch, changed paths, remotes if any). `forge git diff [path]` prints a unified diff, including untracked files. `forge git commit -m "message"` commits locally. There is **no push, no PR, and no remote is invented**.
+`forge git` prints local status (branch, changed paths, remotes if any). `forge git diff [path]` prints a unified diff, including untracked files. `forge git commit -m "message"` commits locally. There is **no push, no PR, and no remote is invented**. Ghost Project rows (missing folders, leftover `forge-w7-farm-brain`, `%TEMP%\farm-brain`) are dropped on load.
+
+`forge telegram` is a **Legion-only** `/forge` alias. It shells `forge.cmd` on this PC. Do not add it to Farm Brain (`/coder` stays on EVO). Token: `FORGE_TELEGRAM_TOKEN` or `C:\Users\jlay\secrets\forge_telegram_token.txt`. Allowlist: `FORGE_TELEGRAM_ALLOW` or `forge_telegram_allow.txt`. Probe with `forge telegram --probe`. Poll with `forge telegram` or `scripts\forge-telegram.cmd`. Burst/edit/apply are refused.
 
 `forge edit` may call **read / list / grep** on the workspace first (no shell). It then prints a unified diff, a **change list**, and numbered **hunks**. `[y/N]` applies the whole reply; `--hunk 0 --hunk 2` writes only those hunks. `farm-brain` apply is blocked unless you pass `--i-understand-qc` — the existing coder QC gate still applies. Check multiple files in the desk (or pass `--file` more than once) so one edit can name several paths.
 
@@ -103,7 +107,7 @@ Farm API calls send `X-Farm-Local-Key` from `FORGE_FARM_TOKEN` or `C:\Users\jlay
 ## Desk panes
 
 1. **Project** — workspace, file tree with breadcrumbs and `..`, path search, checkboxes to **name multiple files** for Ask/Edit, thin **Git** status / diff / local commit, **Vault** search of `C:\Users\jlay\Documents\FarmBrainVault` (named notes + open in Obsidian), vault / Aether / Lumen / AI-PM / Farm Brain launchers. Search and the tree return paths only; Ask/Edit still send only the named files you check, never the whole repo. Vault search is notes in the Obsidian vault — it does not add those notes to Ask/Edit. Electron **Open workspace** uses the native folder picker (browser/prompt fallback). Git is local only: no push, no PR flow, no invented remotes. Untracked files and empty history are shown; Commit writes a local commit from the listed paths.
-2. **Session** — Chat streams ask/edit tokens live. **Log** is `%LOCALAPPDATA%\Forge\sessions.jsonl` (CLI + desk). **Edit** can call read/list/grep (no shell) and shows those tool lines in the bubble. After **Edit**, the Diff tab lists every file and each **hunk** with Apply hunk / Reject hunk. **Apply remaining** writes pending hunks; Reject drops the reply. Git diffs stay review-only. A **farm-brain** workspace shows the QC banner and a desk confirm (checkbox + Confirm apply) before any write — Forge will not auto-apply; `window.confirm` is not the gate. CLI still needs `--i-understand-qc`. Header **Code** / **Ask** dropdowns are live Ollama tags (AMD vs CUDA). Edit uses Code; Ask uses the question model.
+2. **Session** — Chat streams ask/edit tokens live. **Log** is `%LOCALAPPDATA%\Forge\sessions.jsonl` (CLI + desk). **Term** is a local `cmd` pane in the workspace for Jeff — the model cannot see it and still has no shell tool. **Edit** can call read/list/grep (no shell) and shows those tool lines in the bubble. After **Edit**, the Diff tab lists every file and each **hunk** with Apply hunk / Reject hunk. **Apply remaining** writes pending hunks; Reject drops the reply. Git diffs stay review-only. A **farm-brain** workspace shows the QC banner and a desk confirm (checkbox + Confirm apply) before any write — Forge will not auto-apply; `window.confirm` is not the gate. CLI still needs `--i-understand-qc`. Header **Code** / **Ask** dropdowns are live Ollama tags (AMD vs CUDA). Edit uses Code; Ask uses the question model.
 3. **Mesh** — live pulse every 20s (timestamp + pulsing dot). **Aether / Lumen last-URL handoff** (sibling tools — Forge does not embed them). EVO/Tower Ollama hosts plus live **BC-250** boards from Farm Brain `/api/compute/dials` (not a static host list). Drag an EVO/Tower model onto a project to assign it. BC-250 pills are inventory only. Tower **5090** shows a **blocked** badge and cannot be assigned while Vast is live. **Ray** status + last jobs deep-link to the Ray Dashboard (`:8265`) and Farm Brain Compute; **Ontology** (`:8000`) is the SQLite world model, not a Ray job graph.
 
 State lives in `%LOCALAPPDATA%\Forge\state.json`.

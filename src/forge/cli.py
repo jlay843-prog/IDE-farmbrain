@@ -1,4 +1,4 @@
-"""forge status|models|use|open|which|ask|edit|git|serve|projects|recipe|launch|vault"""
+"""forge status|models|use|open|which|ask|edit|git|serve|projects|recipe|launch|vault|telegram"""
 
 from __future__ import annotations
 
@@ -435,6 +435,33 @@ def cmd_vault(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_telegram(args: argparse.Namespace) -> int:
+    from forge import telegram as tg
+
+    if args.probe or args.json:
+        info = tg.probe()
+        if args.json:
+            return _print_json(info)
+        out(f"host    {info['host']}")
+        out(f"legion  {info['legion']}")
+        out(f"token   {'yes' if info['token'] else 'no'}")
+        out(f"allow   {', '.join(str(x) for x in info['allow']) or '(set FORGE_TELEGRAM_ALLOW)'}")
+        out("Farm Brain is not used.")
+        return 0 if info["legion"] else 2
+    if args.text:
+        reply = tg.handle_text(args.text)
+        out(reply or "(not a /forge command)")
+        return 0
+    info = tg.probe()
+    if not info["legion"]:
+        out("forge telegram runs on Legion only (COMPUTERNAME contains Legion).", err=True)
+        return 2
+    if not tg.token():
+        out("Missing FORGE_TELEGRAM_TOKEN or C:\\Users\\jlay\\secrets\\forge_telegram_token.txt", err=True)
+        return 2
+    return tg.run_poll_loop()
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from forge.serve import serve
 
@@ -573,6 +600,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--open", default="", help="open a named note in Obsidian")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_vault)
+
+    p = sub.add_parser("telegram", help="Legion-only /forge alias; shells forge.cmd (not Farm Brain)")
+    p.add_argument("--probe", action="store_true", help="print host/token status and exit")
+    p.add_argument("--text", default="", help="handle one /forge message locally (no Telegram network)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_telegram)
 
     p = sub.add_parser("serve", help="desk HTTP API on loopback")
     p.add_argument("--host", default="127.0.0.1")

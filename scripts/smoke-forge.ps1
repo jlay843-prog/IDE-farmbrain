@@ -1,4 +1,4 @@
-# W13 smoke — loopback desk health, desk bootstrap, Python on PATH.
+# W13–W16 smoke — loopback desk health, term pane, Python finder, leftover project prune.
 # Does not hit burst/5090 or auto-apply farm-brain.
 $ErrorActionPreference = "Stop"
 $bind = if ($env:FORGE_BIND) { $env:FORGE_BIND } else { "127.0.0.1" }
@@ -48,16 +48,32 @@ $health = Invoke-RestMethod -Uri "$base/api/health" -TimeoutSec 5
 if (-not $health.ok) { throw "health ok=false" }
 if ($health.name -ne "forge") { throw "unexpected health name $($health.name)" }
 if ($health.version -ne "1.0.0") { throw "expected v1.0.0, got $($health.version)" }
+if (-not $health.python.ok) { throw "python finder failed: $($health.python.error)" }
 
 $desk = Invoke-RestMethod -Uri "$base/api/desk" -TimeoutSec 5
 if (-not $desk.ok) { throw "desk bootstrap failed" }
 if (-not $desk.recipes) { throw "desk missing recipes" }
+if (-not $desk.term) { throw "desk missing term snapshot" }
+if ($desk.term.model_tool) { throw "terminal must not be a model tool" }
+foreach ($row in @($desk.state.projects)) {
+  if ($row.name -eq "forge-w7-farm-brain") { throw "leftover W7 project row still in desk" }
+  if ($row.name -eq "farm-brain" -and $row.path -match '\\Temp\\') { throw "leftover Temp farm-brain project row still in desk" }
+}
 foreach ($remote in @($desk.git.remotes)) {
   $url = [string]$remote.url
   if ($url -match "example\.com|invented") {
     throw "invented remote in git snapshot: $url"
   }
 }
+
+$term = Invoke-RestMethod -Uri "$base/api/term" -Method POST -ContentType "application/json" -Body '{"action":"start"}' -TimeoutSec 8
+if (-not $term.ok) { throw "term start failed" }
+$termWrite = Invoke-RestMethod -Uri "$base/api/term" -Method POST -ContentType "application/json" -Body '{"action":"write","text":"echo forge-smoke-term"}' -TimeoutSec 8
+if (-not $termWrite.ok) { throw "term write failed" }
+Start-Sleep -Milliseconds 400
+$termSnap = Invoke-RestMethod -Uri "$base/api/term" -TimeoutSec 5
+if ($termSnap.text -notmatch "forge-smoke-term") { throw "term pane did not echo" }
+Invoke-RestMethod -Uri "$base/api/term" -Method POST -ContentType "application/json" -Body '{"action":"stop"}' -TimeoutSec 8 | Out-Null
 
 Write-Host "Smoke OK: forge $($health.version) @ $base (loopback, no burst, no auto-apply)"
 

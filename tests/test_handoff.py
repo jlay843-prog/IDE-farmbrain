@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from forge import handoff as ho
 from forge.launch import launch
@@ -85,6 +86,17 @@ def test_launch_aether_does_not_open_system_browser(tmp_path, monkeypatch):
     assert result["url"] == "https://example.org/page"
     assert (data / "forge-handoff.json").is_file()
     assert result["launched"] is True
+
+
+def test_aether_sibling_reads_named_handoff_file():
+    aether = Path(r"C:\Users\jlay\Grok\aether\src\lib\forge-handoff.ts")
+    assert aether.is_file()
+    text = aether.read_text(encoding="utf-8")
+    assert "forge-handoff.json" in text
+    assert "LOCALAPPDATA" in text
+    assert "Aether" in text
+    route = Path(r"C:\Users\jlay\Grok\aether\src\app\api\forge-handoff\route.ts")
+    assert route.is_file()
 
 
 def test_launch_aether_skips_spawn_when_desk_is_up(tmp_path, monkeypatch):
