@@ -134,11 +134,10 @@ def cmd_use(args: argparse.Namespace) -> int:
         return _pick_model(args.tier)
     tier = args.tier
     be = backend_for_tier(tier)
-    if tier == "burst":
-        resolved = resolve_session("burst")
-        if resolved["blocked"]:
-            out("burst blocked: Vast is active on the 5090.", err=True)
-            return 2
+    resolved = resolve_session(tier, args.model or be.default_model)
+    if resolved["blocked"]:
+        out("burst blocked: Vast is active on the 5090.", err=True)
+        return 2
     state = set_tier(tier, args.model or be.default_model)
     out(f"using {tier} -> {state['last_model']} on {be.label} ({be.gpu}) {be.base}")
     return 0

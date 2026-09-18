@@ -283,8 +283,9 @@ function renderComparePicks(picker) {
 function fillSelect(sel, rows, current, emptyText) {
   if (!sel) return;
   if (document.activeElement === sel) return;
-  const names = rows.map((r) => r.name);
-  const chosen = names.includes(current) ? current : (rows[0] && rows[0].name) || "";
+  const usable = rows.filter((r) => r && r.name && !r.blocked);
+  const names = usable.map((r) => r.name);
+  const chosen = names.includes(current) ? current : (usable[0] && usable[0].name) || "";
   sel.innerHTML = "";
   if (!rows.length) {
     const opt = document.createElement("option");
@@ -294,13 +295,15 @@ function fillSelect(sel, rows, current, emptyText) {
     sel.disabled = true;
     return;
   }
-  sel.disabled = false;
+  sel.disabled = usable.length === 0;
   for (const row of rows) {
     const opt = document.createElement("option");
     opt.value = row.name;
     const pulse = row.loaded ? "● " : "";
-    opt.textContent = `${pulse}${row.name}`;
-    if (row.name === chosen) opt.selected = true;
+    const block = row.blocked ? " [blocked]" : "";
+    opt.textContent = `${pulse}${row.name}${block}`;
+    opt.disabled = !!row.blocked;
+    if (!row.blocked && row.name === chosen) opt.selected = true;
     sel.appendChild(opt);
   }
 }
@@ -1334,9 +1337,13 @@ async function refreshAll() {
     await fetchDir(state.cwd || "");
   }
   toast(`edit ${desk.state.code_model || ""} · ask ${desk.state.chat_model || ""} · ${desk.state.workspace || "no workspace"}`);
-  const [status, mesh] = await Promise.all([api("/api/status"), api("/api/mesh")]);
+  const [status, mesh, models] = await Promise.all([
+    api("/api/status"),
+    api("/api/mesh"),
+    api("/api/models"),
+  ]);
   renderChips(status, mesh);
-  renderPicker(pickerFromStatus(status));
+  renderPicker((models && models.picker) || pickerFromStatus(status));
   renderMesh(mesh);
   await refreshLog();
 }

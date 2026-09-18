@@ -1,8 +1,8 @@
 # Telegram `/forge` (Legion only)
 
-Forge is a Legion workspace tool. Telegram `/coder` stays the EVO runbook coder on Farm Brain.
+Forge is a Legion workspace tool on **Legion** via **@LTF47bot**. `/forge` shells `C:\Users\jlay\Grok\forge\forge.cmd`. Farm Brain keeps `/coder` — do not add `/forge` there unless Jeff asks.
 
-**Do not add `/forge` to Farm Brain.** This alias lives in this repo and shells `C:\Users\jlay\Grok\forge\forge.cmd` on Legion.
+**Do not add `/forge` to Farm Brain.** This alias lives in this repo only.
 
 ## One-time secrets
 

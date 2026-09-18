@@ -124,10 +124,9 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes(load_state())
     if path == "/api/use" and method == "POST":
         tier = body["tier"]
-        if tier == "burst":
-            resolved = resolve_session("burst", body.get("model"))
-            if resolved.get("blocked"):
-                raise SessionError("burst is blocked while Vast is active on the 5090")
+        resolved = resolve_session(tier, body.get("model"))
+        if resolved.get("blocked"):
+            raise SessionError("burst is blocked while Vast is active on the 5090")
         return _json_bytes(set_tier(tier, body.get("model")))
     if path == "/api/open" and method == "POST":
         return _json_bytes(set_workspace(body["path"]))

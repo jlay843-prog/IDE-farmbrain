@@ -339,10 +339,66 @@ def status_snapshot(*, refresh: bool = False) -> dict[str, Any]:
     return data
 
 
-def models_snapshot() -> dict[str, Any]:
-    snap = status_snapshot()
-    rows = []
-    for be in snap["backends"].values():
+def probe_farm_host(node: dict[str, Any]) -> dict[str, Any]:
+    """Live /api/tags + /api/ps for one BC-250 dial row. Falls back to dial inventory."""
+    base = str(node.get("base") or "").strip()
+    if not base:
+        return {**node, "ok": False, "models": node.get("models") or [], "running": node.get("running") or []}
+    tags_status, tags = _ollama(base, "/api/tags", timeout=2.5)
+    _ps_status, ps = _ollama(base, "/api/ps", timeout=2.5)
+    models: list[dict[str, str]] = []
+    if isinstance(tags, dict):
+        for row in tags.get("models") or []:
+            name = row.get("name") or row.get("model") or ""
+            if name:
+                models.append({"name": name})
+    if not models:
+        models = [{"name": m["name"]} for m in (node.get("models") or []) if m.get("name")]
+    running: list[dict[str, str]] = []
+    if isinstance(ps, dict):
+        for row in ps.get("models") or []:
+            name = row.get("name") or row.get("model") or ""
+            if name:
+                running.append({"name": name})
+    if not running:
+        running = list(node.get("running") or [])
+    ok = tags_status == 200 or bool(node.get("ok"))
+    return {**node, "ok": ok, "models": models, "running": running}
+
+
+def farm_model_rows(dials: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Flatten BC-250 tags from live dials + /api/tags. Never invent hosts."""
+    nodes = farm_hosts_from_dials(dials)
+    if not nodes:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(nodes))) as pool:
+        probed = list(pool.map(probe_farm_host, nodes))
+    rows: list[dict[str, Any]] = []
+    for node in probed:
+        running_names = {r["name"] for r in node.get("running") or [] if r.get("name")}
+        for model in node.get("models") or []:
+            name = model.get("name") if isinstance(model, dict) else str(model or "")
+            if not name:
+                continue
+            rows.append(
+                {
+                    "backend": node["id"],
+                    "label": node["label"],
+                    "gpu": node["gpu"],
+                    "host_id": node.get("host_id") or node["id"],
+                    "role": "farm",
+                    "base": node["base"],
+                    "name": name,
+                    "loaded": is_loaded(name, running_names),
+                    "backend_ok": bool(node.get("ok")),
+                }
+            )
+    return rows
+
+
+def inventory_rows(snap: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for be in snap.get("backends", {}).values():
         running_names = {r["name"] for r in be.get("running") or []}
         for model in be.get("models") or []:
             rows.append(
@@ -358,6 +414,13 @@ def models_snapshot() -> dict[str, Any]:
                     "backend_ok": be["ok"],
                 }
             )
+    rows.extend(farm_model_rows(snap.get("dials")))
+    return rows
+
+
+def models_snapshot() -> dict[str, Any]:
+    snap = status_snapshot()
+    rows = inventory_rows(snap)
     return {
         "vast_active": snap["vast_active"],
         "models": rows,
@@ -382,6 +445,59 @@ def is_talk_model(name: str) -> bool:
     return not any(part in low for part in TALK_SKIP)
 
 
+def is_deepseek_model(name: str) -> bool:
+    return "deepseek" in (name or "").lower()
+
+
+def is_qwen38_tower(name: str) -> bool:
+    low = (name or "").lower()
+    return low.startswith("aria-qwen38") or low.startswith("qwen3.8-pharma")
+
+
+def _picker_row(row: dict[str, Any], *, tier: str, blocked: bool) -> dict[str, Any]:
+    return {
+        "name": str(row.get("name") or ""),
+        "loaded": bool(row.get("loaded")),
+        "backend": row.get("backend"),
+        "label": row.get("label"),
+        "gpu": row.get("gpu"),
+        "ok": bool(row.get("backend_ok")),
+        "blocked": blocked,
+        "tier": tier,
+        "base": row.get("base"),
+    }
+
+
+def _code_extra_rows(rows: list[dict[str, Any]], vast: bool) -> list[dict[str, Any]]:
+    """Cross-host code options: BC-250 DeepSeek, EVO CUDA qwen3.8, tower qwen3.8."""
+    extras: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "")
+        if not is_talk_model(name):
+            continue
+        role = str(row.get("role") or "")
+        backend = str(row.get("backend") or "")
+        key = (name, backend)
+        if key in seen:
+            continue
+        blocked = False
+        add = False
+        if role == "farm" and is_deepseek_model(name):
+            add = True
+        elif role == "chat" and name == PICKER_DEFAULTS["chat"]:
+            add = True
+        elif role == "burst" and is_qwen38_tower(name) and name == PICKER_DEFAULTS["burst"]:
+            add = True
+            blocked = vast
+        if add:
+            seen.add(key)
+            extras.append(_picker_row(row, tier="code", blocked=blocked))
+    return extras
+
+
 def picker_from_models(snap: dict[str, Any] | None) -> dict[str, Any]:
     """Group live /api/tags rows for the code vs ask picker. No toml fork."""
     snap = snap or {}
@@ -394,25 +510,24 @@ def picker_from_models(snap: dict[str, Any] | None) -> dict[str, Any]:
         if not is_talk_model(name):
             continue
         role = str(row.get("role") or "")
-        if role not in groups:
+        if role not in groups and role != "farm":
             continue
-        groups[role].append(
-            {
-                "name": name,
-                "loaded": bool(row.get("loaded")),
-                "backend": row.get("backend"),
-                "label": row.get("label"),
-                "gpu": row.get("gpu"),
-                "ok": bool(row.get("backend_ok")),
-                "blocked": role == "burst" and vast,
-                "tier": role,
-            }
-        )
+        if role in groups:
+            groups[role].append(
+                _picker_row(row, tier=role, blocked=role == "burst" and vast)
+            )
+    code_keys = {(r["name"], r.get("backend")) for r in groups["code"]}
+    for extra in _code_extra_rows(snap.get("models") or [], vast):
+        key = (extra["name"], extra.get("backend"))
+        if key not in code_keys:
+            groups["code"].append(extra)
+            code_keys.add(key)
     for tier, rows in groups.items():
         default = PICKER_DEFAULTS[tier]
         prefix = default.split(":")[0]
         rows.sort(
             key=lambda r: (
+                r.get("blocked"),
                 not r["loaded"],
                 0 if r["name"] == default or r["name"].startswith(prefix) else 1,
                 r["name"],
@@ -473,10 +588,86 @@ def mesh_snapshot() -> dict[str, Any]:
     }
 
 
+_TIER_BACKEND_PREF: dict[str, tuple[str, ...]] = {
+    "code": ("amd", "farm", "cuda", "burst"),
+    "chat": ("cuda", "amd", "farm", "burst"),
+    "burst": ("burst",),
+}
+
+
+def _match_inventory_rows(name: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    want = (name or "").strip()
+    if not want:
+        return []
+    exact = [r for r in rows if r.get("name") == want]
+    if exact:
+        return exact
+    prefix = want.split(":")[0]
+    return [r for r in rows if str(r.get("name") or "").startswith(prefix)]
+
+
+def _backend_rank(tier: str, row: dict[str, Any]) -> int:
+    pref = _TIER_BACKEND_PREF.get(tier, ())
+    backend = str(row.get("backend") or "")
+    role = str(row.get("role") or "")
+    if backend in pref:
+        return pref.index(backend)
+    if role == "farm":
+        return pref.index("farm") if "farm" in pref else 99
+    return 99
+
+
+def _backend_snapshot_for_row(row: dict[str, Any], dials: dict[str, Any] | None) -> dict[str, Any]:
+    backend_id = str(row.get("backend") or "")
+    if backend_id in BACKENDS:
+        return probe_backend(backend_id)
+    node = next((n for n in farm_hosts_from_dials(dials) if n.get("id") == backend_id), None)
+    if node is None:
+        return {
+            "id": backend_id,
+            "label": row.get("label") or backend_id,
+            "host_id": row.get("host_id") or backend_id,
+            "gpu": row.get("gpu") or "",
+            "base": row.get("base") or "",
+            "ok": bool(row.get("backend_ok")),
+            "role": "farm",
+        }
+    live = probe_farm_host(node)
+    return {
+        "id": backend_id,
+        "label": live.get("label") or backend_id,
+        "host_id": live.get("host_id") or backend_id,
+        "gpu": live.get("gpu") or "",
+        "base": live.get("base") or row.get("base") or "",
+        "ok": bool(live.get("ok")),
+        "role": "farm",
+    }
+
+
 def resolve_session(tier: str, model: str | None = None) -> dict[str, Any]:
+    status = status_snapshot()
+    vast = bool(status.get("vast_active"))
     be = backend_for_tier(tier)
-    snap = probe_backend(be.id)
     chosen = model or be.default_model
+    rows = inventory_rows(status)
+    matches = _match_inventory_rows(chosen, rows)
+    if matches:
+        matches.sort(key=lambda r: (_backend_rank(tier, r), not r.get("loaded"), r.get("name") or ""))
+        pick = matches[0]
+        chosen = str(pick.get("name") or chosen)
+        backend = _backend_snapshot_for_row(pick, status.get("dials"))
+        base = str(pick.get("base") or backend.get("base") or be.base)
+        blocked = (tier == "burst" and vast) or (
+            vast and str(pick.get("role") or "") == "burst"
+        )
+        return {
+            "tier": tier,
+            "backend": backend,
+            "model": chosen,
+            "base": base,
+            "blocked": blocked,
+        }
+    snap = probe_backend(be.id)
     names = [m["name"] for m in snap.get("models") or []]
     if names and chosen not in names:
         prefix = chosen.split(":")[0]
@@ -488,5 +679,5 @@ def resolve_session(tier: str, model: str | None = None) -> dict[str, Any]:
         "backend": snap,
         "model": chosen,
         "base": be.base,
-        "blocked": tier == "burst" and vast_active(farm_json(FARM_COMPUTE), farm_json(FARM_DIALS)),
+        "blocked": tier == "burst" and vast,
     }
