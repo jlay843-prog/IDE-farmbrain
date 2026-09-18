@@ -1,4 +1,4 @@
-"""forge status|models|use|open|which|ask|edit|git|serve|projects|recipe|launch|vault|telegram"""
+"""forge status|models|use|open|which|ask|edit|git|health|log|serve|projects|recipe|launch|vault|telegram"""
 
 from __future__ import annotations
 
@@ -13,7 +13,8 @@ from forge.hosts import TIERS, backend_for_tier
 from forge.io import configure_stdio, out, write_chunk
 from forge.launch import launch
 from forge.vault import search_vault, vault_info
-from forge.log import log_turn
+from forge.health import health_snapshot
+from forge.log import log_path, log_turn, read_turns
 from forge.probe import (
     farm_hosts_from_dials,
     mesh_snapshot,
@@ -41,6 +42,54 @@ from forge.state import (
 
 def _print_json(data) -> int:
     out(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def cmd_health(args: argparse.Namespace) -> int:
+    snap = health_snapshot()
+    if args.json:
+        return _print_json(snap)
+    py = snap.get("python") or {}
+    monaco = snap.get("monaco") or {}
+    out(f"forge {snap.get('version')}  python={'ok' if py.get('ok') else 'missing'}  monaco={'ok' if monaco.get('ok') else 'missing'}")
+    if py.get("exe"):
+        out(f"  python  {py['exe']}")
+    if monaco.get("path"):
+        out(f"  monaco  {monaco['path']}")
+    elif not monaco.get("ok"):
+        out("  monaco  run npm run vendor:monaco")
+    code = 0
+    if not py.get("ok"):
+        code = 1
+    elif not monaco.get("ok"):
+        code = 2
+    return code
+
+
+def cmd_log(args: argparse.Namespace) -> int:
+    turns = read_turns(args.limit)
+    if args.json:
+        return _print_json({"ok": True, "path": str(log_path()), "turns": turns})
+    path = log_path()
+    if not turns:
+        out(f"No turns in {path}")
+        return 0
+    out(f"{path}  ({len(turns)} recent)")
+    for row in turns:
+        at = row.get("at") or "?"
+        kind = row.get("kind") or "?"
+        model = row.get("model") or "?"
+        prompt = (row.get("prompt") or "").strip()
+        if len(prompt) > 72:
+            prompt = prompt[:69] + "..."
+        files = row.get("files") or []
+        extra = f"  files={len(files)}" if files else ""
+        applied = row.get("applied")
+        if applied is not None:
+            extra += f"  applied={applied}"
+        out(f"{at}  {kind:5}  {model}{extra}")
+        if prompt:
+            out(f"  {prompt}")
     return 0
 
 
@@ -524,6 +573,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="forge", description="Local Qwen coding desk")
     parser.add_argument("--version", action="version", version=f"forge {__version__}")
     sub = parser.add_subparsers(dest="cmd")
+
+    p = sub.add_parser("health", help="local python + Monaco vendor (no desk server)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_health)
+
+    p = sub.add_parser("log", help="recent ask/edit turns from sessions.jsonl")
+    p.add_argument("--limit", type=int, default=20, help="max rows (default 20, cap 500)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_log)
 
     p = sub.add_parser("status", help="probe EVO CUDA/AMD, tower, Farm Brain")
     p.add_argument("--json", action="store_true")

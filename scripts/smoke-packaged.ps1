@@ -1,4 +1,4 @@
-# Smoke the built Forge.exe (W13). Seeds workspace so the first-run picker does not block headless runs.
+# Smoke the built Forge.exe (W13+). Seeds workspace so the first-run picker does not block headless runs.
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Exe = Join-Path $Root "dist\win-unpacked\Forge.exe"
@@ -38,4 +38,14 @@ for ($i = 0; $i -lt 90; $i++) {
 }
 if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
 if (-not $ok) { throw "Packaged Forge.exe did not report v1.0.0 on $base" }
-Write-Host "Packaged smoke OK: forge $($health.version) @ $base"
+
+if (-not $health.python.ok) { throw "packaged python finder failed: $($health.python.error)" }
+if (-not $health.monaco.ok) { throw "packaged monaco vendor missing" }
+$monacoLoader = Invoke-WebRequest -Uri "$base/vendor/monaco-editor/min/vs/loader.js" -UseBasicParsing -TimeoutSec 5
+if ($monacoLoader.StatusCode -ne 200) { throw "packaged monaco loader not served from loopback" }
+
+$desk = Invoke-RestMethod -Uri "$base/api/desk" -TimeoutSec 5
+if (-not $desk.ok) { throw "packaged desk bootstrap failed" }
+if ($desk.term.model_tool) { throw "terminal must not be a model tool" }
+
+Write-Host "Packaged smoke OK: forge $($health.version) @ $base (python + monaco + desk)"

@@ -12,7 +12,7 @@ def test_health():
 
 
 def test_health_reports_monaco_vendor():
-    from forge.serve import MONACO_LOADER
+    from forge.health import MONACO_LOADER
 
     status, payload, _ = handle_api("GET", "/api/health", {}, {})
     data = json.loads(payload)

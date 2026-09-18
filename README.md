@@ -28,7 +28,7 @@ $env:ELECTRON_BUILDER_CACHE = "$PWD\.eb-cache"
 npm run dist:win
 npm run smoke
 npm run smoke:handoff
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-packaged.ps1
+npm run smoke:packaged
 ```
 
 That writes:
@@ -58,6 +58,8 @@ or `.\scripts\launch-forge.cmd`. Failures append to `%LOCALAPPDATA%\Forge\launch
 ```bat
 forge
 forge which
+forge health
+forge log
 forge status
 forge models -q
 forge use
@@ -85,7 +87,7 @@ forge telegram --text "/forge status"
 
 `forge compare ask|edit` runs the same prompt on up to 3 live models, then **qwen3-coder:30b** on EVO AMD `:11437` picks a winner. Desk: check models under the composer, then **Compare ask** / **Compare edit**. The 30B pick is the WINNER line (not applied). farm-brain Apply still needs the desk QC confirm (CLI: `--i-understand-qc`).
 
-Bare `forge` prints the pinned session and help. Turns are appended to `%LOCALAPPDATA%\Forge\sessions.jsonl` from **both** the CLI and the desk (Ask / Edit / recipes). The desk **Log** tab lists recent turns from that file.
+Bare `forge` prints the pinned session and help. `forge health` checks the local Python finder and Monaco vendor without starting the desk. `forge log` tails `%LOCALAPPDATA%\Forge\sessions.jsonl` (newest first; `--json` for scripts). Turns are appended from **both** the CLI and the desk (Ask / Edit / recipes). The desk **Log** tab lists the same file.
 
 `forge ask` and `forge edit` **stream tokens** as they arrive (`stream: true` to Ollama). The desk Chat pane does the same over `/api/ask/stream` and `/api/edit/stream`. `--json` still waits for the full object.
 

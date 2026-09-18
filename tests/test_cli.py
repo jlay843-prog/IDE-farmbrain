@@ -8,7 +8,7 @@ from forge.log import log_turn, read_turns
 def test_parser_has_week1_commands():
     parser = build_parser()
     names = parser._subparsers._group_actions[0].choices
-    for name in ("status", "models", "use", "open", "which", "ask", "edit", "compare", "git", "serve", "projects", "recipe", "launch", "vault", "telegram"):
+    for name in ("health", "log", "status", "models", "use", "open", "which", "ask", "edit", "compare", "git", "serve", "projects", "recipe", "launch", "vault", "telegram"):
         assert name in names
 
 
@@ -331,6 +331,43 @@ def test_package_json_has_windows_installer_and_portable():
     assert "Forge-${version}.exe" in data["build"]["win"]["artifactName"]
     assert data["build"]["nsis"]["uninstallDisplayName"] == "Forge"
     assert data["build"]["forceCodeSigning"] is False
+
+
+def test_health_cli_reports_python_and_monaco(capsys):
+    code = main(["health"])
+    out = capsys.readouterr().out
+    assert "forge 1.0.0" in out
+    assert "python=" in out
+    assert "monaco=" in out
+    assert code in (0, 2)
+
+
+def test_health_cli_json(capsys):
+    assert main(["health", "--json"]) in (0, 2)
+    data = json.loads(capsys.readouterr().out)
+    assert data["name"] == "forge"
+    assert data["version"] == "1.0.0"
+    assert "python" in data
+    assert "monaco" in data
+
+
+def test_log_cli_empty(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    assert main(["log"]) == 0
+    out = capsys.readouterr().out
+    assert "No turns" in out
+
+
+def test_log_cli_lists_turns(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    log_turn("ask", {"tier": "chat", "model": "qwen3.8:27b", "files": []}, prompt="hello forge")
+    assert main(["log", "--limit", "5"]) == 0
+    out = capsys.readouterr().out
+    assert "qwen3.8:27b" in out
+    assert "hello forge" in out
+    assert main(["log", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["turns"][0]["kind"] == "ask"
 
 
 def test_telegram_cli_probe_and_text(capsys):

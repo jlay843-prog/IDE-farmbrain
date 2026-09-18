@@ -14,7 +14,8 @@
     "vendor:monaco": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-monaco.ps1",
     "dist:win": "npm run bundle:python && npm run vendor:monaco && npm run build:icon && electron-builder --win nsis portable --x64",
     "smoke": "py -3 -m pytest tests/test_smoke.py -q && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-forge.ps1",
-    "smoke:handoff": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-aether-handoff.ps1"
+    "smoke:handoff": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-aether-handoff.ps1",
+    "smoke:packaged": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1"
   },
   "devDependencies": {
     "electron": "^38.2.0",

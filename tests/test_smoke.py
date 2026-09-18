@@ -4,7 +4,15 @@ import json
 import shutil
 
 from forge import __version__
+from forge.health import health_snapshot
 from forge.serve import handle_api
+
+
+def test_health_snapshot_matches_api():
+    snap = health_snapshot()
+    status, payload, _ = handle_api("GET", "/api/health", {}, {})
+    assert status == 200
+    assert snap == json.loads(payload)
 
 
 def test_health_reports_v1():

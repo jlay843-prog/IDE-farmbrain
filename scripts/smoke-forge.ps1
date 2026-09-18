@@ -1,6 +1,13 @@
-# W13–W16 smoke — loopback desk health, term pane, Python finder, leftover project prune.
+# W13–W16 smoke — CLI health preflight, loopback desk, term pane, leftover project prune.
 # Does not hit burst/5090 or auto-apply farm-brain.
 $ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot
+$forgeCmd = Join-Path $root "forge.cmd"
+if (Test-Path $forgeCmd) {
+  & $forgeCmd health | Out-Host
+  if ($LASTEXITCODE -gt 1) { throw "forge health failed (exit $LASTEXITCODE)" }
+}
+
 $bind = if ($env:FORGE_BIND) { $env:FORGE_BIND } else { "127.0.0.1" }
 $port = if ($env:FORGE_PORT) { $env:FORGE_PORT } else { "43180" }
 $base = "http://${bind}:${port}"

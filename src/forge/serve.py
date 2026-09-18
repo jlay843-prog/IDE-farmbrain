@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from forge import __version__
 from forge.compare import run_compare
-from forge.python_find import find_python
+from forge.health import health_snapshot
 from forge.term import snapshot as term_snapshot
 from forge.term import start as term_start
 from forge.term import stop as term_stop
@@ -52,7 +52,6 @@ MIME = {
     ".woff": "font/woff",
     ".woff2": "font/woff2",
 }
-MONACO_LOADER = UI_DIR / "vendor" / "monaco-editor" / "min" / "vs" / "loader.js"
 STREAM_PATHS = {"/api/ask/stream", "/api/edit/stream"}
 
 
@@ -86,17 +85,7 @@ def _git_or_empty(root):
 
 def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, bytes, str]:
     if path == "/api/health":
-        py = find_python()
-        monaco = MONACO_LOADER.is_file()
-        return _json_bytes(
-            {
-                "ok": True,
-                "name": "forge",
-                "version": __version__,
-                "python": py,
-                "monaco": {"ok": monaco, "path": str(MONACO_LOADER.relative_to(UI_DIR)) if monaco else ""},
-            }
-        )
+        return _json_bytes(health_snapshot())
     if path == "/api/desk":
         root = workspace_path()
         tree = tree_listing(root, "") if root else {"cwd": "", "parent": None, "crumbs": [], "entries": []}
