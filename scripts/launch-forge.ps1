@@ -18,6 +18,16 @@ function Write-Forge([string]$Message) {
   Write-Host $Message
 }
 
+$forgeCmd = Join-Path $Root "forge.cmd"
+if (Test-Path $forgeCmd) {
+  Write-Forge "Preflight: forge health"
+  & $forgeCmd health | Out-Host
+  if ($LASTEXITCODE -gt 1) {
+    Write-Forge "forge health failed (exit $LASTEXITCODE) — fix Python or run npm run vendor:monaco"
+    throw "forge health failed (exit $LASTEXITCODE)"
+  }
+}
+
 function Test-ForgeHealth {
   try {
     $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:$($env:FORGE_PORT)/api/health"

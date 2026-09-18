@@ -99,6 +99,24 @@ if (-not $log.path) { throw "log endpoint missing path" }
 if ($null -eq $log.turns) { throw "log endpoint missing turns" }
 
 if (Test-Path $forgeCmd) {
+  $logJson = & $forgeCmd log --json --limit 5
+  if ($LASTEXITCODE -ne 0) { throw "forge log --json failed (exit $LASTEXITCODE)" }
+  $logCli = $logJson | ConvertFrom-Json
+  if (-not $logCli.ok) { throw "forge log --json ok=false" }
+  if (-not $logCli.path) { throw "forge log --json missing path" }
+  if ($null -eq $logCli.turns) { throw "forge log --json missing turns" }
+
+  $gitJson = & $forgeCmd git --json
+  if ($LASTEXITCODE -ne 0) { throw "forge git --json failed (exit $LASTEXITCODE)" }
+  $gitCli = $gitJson | ConvertFrom-Json
+  if (-not $gitCli.ok) { throw "forge git --json ok=false" }
+  foreach ($remote in @($gitCli.remotes)) {
+    $url = [string]$remote.url
+    if ($url -match "example\.com|invented") {
+      throw "invented remote in forge git --json: $url"
+    }
+  }
+
   $probeJson = & $forgeCmd telegram --probe --json
   if ($LASTEXITCODE -ne 0) { throw "forge telegram --probe failed (exit $LASTEXITCODE)" }
   $probe = $probeJson | ConvertFrom-Json

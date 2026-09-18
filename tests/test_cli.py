@@ -176,8 +176,17 @@ def test_smoke_forge_checks_log_and_telegram_probe():
     root = Path(__file__).resolve().parents[1]
     text = (root / "scripts" / "smoke-forge.ps1").read_text(encoding="utf-8")
     assert "/api/log" in text
+    assert "log --json" in text
+    assert "git --json" in text
     assert "telegram --probe" in text
     assert "farm_brain" in text
+
+
+def test_launch_script_runs_forge_health_preflight():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "scripts" / "launch-forge.ps1").read_text(encoding="utf-8")
+    assert "forge health" in text
+    assert "LASTEXITCODE" in text
 
 
 def test_desk_ui_has_log_tab_and_stream_client():
