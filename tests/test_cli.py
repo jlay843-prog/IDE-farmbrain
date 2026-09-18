@@ -145,6 +145,41 @@ def test_launch_script_passes_repo_root_not_main_cjs():
     assert "ArgumentList @($Root)" in text
 
 
+def test_launch_script_starts_server_via_forge_cmd():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "scripts" / "launch-forge.ps1").read_text(encoding="utf-8")
+    assert "forge.cmd" in text
+    assert 'serve", "--host"' in text or "serve\", \"--host\"" in text
+
+
+def test_install_shortcut_uses_forge_icon():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "deploy" / "windows" / "Install-Forge-Shortcut.ps1").read_text(encoding="utf-8")
+    assert "ui\\forge.ico" in text.replace("/", "\\") or "ui/forge.ico" in text
+    assert "IconLocation" in text
+
+
+def test_smoke_all_script_chains_checks():
+    root = Path(__file__).resolve().parents[1]
+    script = root / "scripts" / "smoke-all.ps1"
+    assert script.is_file()
+    text = script.read_text(encoding="utf-8")
+    assert "test_smoke.py" in text
+    assert "smoke-forge.ps1" in text
+    assert "smoke-aether-handoff.ps1" in text
+    assert "smoke-packaged.ps1" in text
+    data = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    assert "smoke:all" in data["scripts"]
+
+
+def test_smoke_forge_checks_log_and_telegram_probe():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "scripts" / "smoke-forge.ps1").read_text(encoding="utf-8")
+    assert "/api/log" in text
+    assert "telegram --probe" in text
+    assert "farm_brain" in text
+
+
 def test_desk_ui_has_log_tab_and_stream_client():
     root = Path(__file__).resolve().parents[1]
     html = (root / "ui" / "index.html").read_text(encoding="utf-8")

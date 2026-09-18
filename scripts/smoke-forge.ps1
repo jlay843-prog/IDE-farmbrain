@@ -93,6 +93,19 @@ $termSnap = Invoke-RestMethod -Uri "$base/api/term" -TimeoutSec 5
 if ($termSnap.text -notmatch "forge-smoke-term") { throw "term pane did not echo" }
 Invoke-RestMethod -Uri "$base/api/term" -Method POST -ContentType "application/json" -Body '{"action":"stop"}' -TimeoutSec 8 | Out-Null
 
+$log = Invoke-RestMethod -Uri "$base/api/log?limit=5" -TimeoutSec 5
+if (-not $log.ok) { throw "log endpoint failed" }
+if (-not $log.path) { throw "log endpoint missing path" }
+if ($null -eq $log.turns) { throw "log endpoint missing turns" }
+
+if (Test-Path $forgeCmd) {
+  $probeJson = & $forgeCmd telegram --probe --json
+  if ($LASTEXITCODE -ne 0) { throw "forge telegram --probe failed (exit $LASTEXITCODE)" }
+  $probe = $probeJson | ConvertFrom-Json
+  if (-not $probe.legion) { throw "forge telegram probe: legion=false (Legion-only)" }
+  if ($probe.farm_brain) { throw "forge telegram probe: farm_brain must be false" }
+}
+
 Write-Host "Smoke OK: forge $($health.version) @ $base (loopback, no burst, no auto-apply)"
 
 if ($started -and -not $started.HasExited) {

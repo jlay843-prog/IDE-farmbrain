@@ -29,6 +29,7 @@ npm run dist:win
 npm run smoke
 npm run smoke:handoff
 npm run smoke:packaged
+npm run smoke:all
 ```
 
 That writes:

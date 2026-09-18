@@ -4,6 +4,7 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $LaunchPs1 = Join-Path $Root "scripts\launch-forge.ps1"
 $LaunchCmd = Join-Path $Root "scripts\launch-forge.cmd"
 $ElectronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
+$IconIco = Join-Path $Root "ui\forge.ico"
 
 if (-not (Test-Path $ElectronExe)) {
   Write-Host "Installing Forge desktop dependencies..."
@@ -26,7 +27,11 @@ foreach ($path in $targets) {
     $sc.TargetPath = "$ElectronExe"
     $sc.Arguments = "`"$Root`""
     $sc.WorkingDirectory = "$Root"
-    $sc.IconLocation = "$ElectronExe,0"
+    if (Test-Path $IconIco) {
+      $sc.IconLocation = "$IconIco"
+    } else {
+      $sc.IconLocation = "$ElectronExe,0"
+    }
   } else {
     $sc.TargetPath = "powershell.exe"
     $sc.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$LaunchPs1`""
