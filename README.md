@@ -18,7 +18,7 @@ npm install
 
 That writes a Desktop / Start Menu shortcut that opens Electron with this folder as the app (so Forge does not collide with Aether).
 
-Windows `.exe` (W11 portable slice — no custom icon, uninstaller, or first-run picker yet):
+Windows v1 desk (W12–W13 — custom icon, NSIS uninstaller, first-run workspace picker, smoke):
 
 ```powershell
 cd C:\Users\jlay\Grok\forge
@@ -26,9 +26,17 @@ npm install
 $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
 $env:ELECTRON_BUILDER_CACHE = "$PWD\.eb-cache"
 npm run dist:win
+npm run smoke
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-packaged.ps1
 ```
 
-That writes `dist\Forge-0.1.0.exe` (portable) and `dist\win-unpacked\Forge.exe`. Python 3.11+ (`py -3`) still has to be on PATH. Double-click the exe for the loopback desk. Icon / uninstaller / first-run workspace picker wait for W12.
+That writes:
+
+- `dist\Forge-Setup-1.0.0.exe` — NSIS installer with **Uninstall Forge** in Settings → Apps
+- `dist\Forge-1.0.0.exe` — portable build (same icon)
+- `dist\win-unpacked\Forge.exe`
+
+Python 3.11+ (`py -3`) still has to be on PATH. First launch of the packaged desk opens a native **Choose your Forge workspace** folder picker when `%LOCALAPPDATA%\Forge\state.json` has no workspace yet. Loopback only (`127.0.0.1:43180`). No burst/5090 while Vast is live; farm-brain apply still needs desk QC confirm.
 
 **Double-click Forge** on the Desktop. The desk is `http://127.0.0.1:43180`.
 

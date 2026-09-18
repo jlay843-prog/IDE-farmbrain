@@ -24,8 +24,73 @@ const url = `http://${bind}:${port}/`;
 
 const localAppData =
   process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+const forgeData = process.env.FORGE_DATA || path.join(localAppData, "Forge");
 app.setName("Forge");
 app.setPath("userData", process.env.FORGE_ELECTRON_DATA || path.join(localAppData, "Forge", "electron"));
+
+function appIcon() {
+  const candidates = [
+    path.join(__dirname, "..", "ui", "forge.ico"),
+    path.join(root, "ui", "forge.ico"),
+    path.join(root, "ui", "forge-icon.svg"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function readWorkspaceFromState() {
+  try {
+    const raw = fs.readFileSync(path.join(forgeData, "state.json"), "utf8");
+    const state = JSON.parse(raw);
+    return String(state.workspace || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function postWorkspace(folderPath) {
+  const data = JSON.stringify({ path: folderPath });
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: bind,
+        port,
+        path: "/api/open",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(data),
+        },
+      },
+      (res) => {
+        res.resume();
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve();
+          return;
+        }
+        reject(new Error(`workspace set failed (${res.statusCode})`));
+      }
+    );
+    req.on("error", reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+async function ensureFirstRunWorkspace() {
+  const current = readWorkspaceFromState();
+  if (current && fs.existsSync(current)) return;
+  const result = await dialog.showOpenDialog({
+    title: "Choose your Forge workspace",
+    message: "Pick the project folder Forge should open first. You can change this later from Project.",
+    defaultPath: current || process.env.USERPROFILE || os.homedir(),
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || !result.filePaths.length) return;
+  await postWorkspace(result.filePaths[0]);
+}
 
 let server = null;
 let win = null;
@@ -69,7 +134,7 @@ function startServer() {
       FORGE_ROOT: root,
       FORGE_BIND: bind,
       FORGE_PORT: String(port),
-      FORGE_DATA: process.env.FORGE_DATA || path.join(localAppData, "Forge"),
+      FORGE_DATA: forgeData,
       PYTHONPATH: path.join(root, "src") + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ""),
     },
     stdio: "inherit",
@@ -92,7 +157,7 @@ function createWindow() {
     title: "Forge",
     autoHideMenuBar: true,
     backgroundColor: "#120e0a",
-    icon: path.join(root, "ui", "forge-icon.svg"),
+    icon: appIcon(),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -151,6 +216,7 @@ if (!gotLock) {
       server = startServer();
       await waitForHealth();
     }
+    await ensureFirstRunWorkspace();
     await createWindow();
   }).catch((err) => {
     console.error(err);

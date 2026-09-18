@@ -1,6 +1,6 @@
 {
   "name": "forge-desk",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Local Qwen coding desk. Models stay on the farm LAN.",
   "author": "Jeff Lay",
@@ -9,7 +9,9 @@
     "desktop": "electron .",
     "desk": "electron .",
     "serve": "py -3 -m forge serve",
-    "dist:win": "electron-builder --win portable --x64"
+    "build:icon": "py -3 scripts/build-icon.py",
+    "dist:win": "npm run build:icon && electron-builder --win nsis portable --x64",
+    "smoke": "py -3 -m pytest tests/test_smoke.py -q && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-forge.ps1"
   },
   "devDependencies": {
     "electron": "^38.2.0",
@@ -49,14 +51,35 @@
     "win": {
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "portable",
           "arch": [
             "x64"
           ]
         }
       ],
+      "icon": "ui/forge.ico",
       "artifactName": "Forge-${version}.exe",
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "ui/forge.ico",
+      "uninstallerIcon": "ui/forge.ico",
+      "installerHeaderIcon": "ui/forge.ico",
+      "uninstallDisplayName": "Forge",
+      "artifactName": "Forge-Setup-${version}.exe"
     },
     "portable": {
       "artifactName": "Forge-${version}.exe"

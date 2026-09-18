@@ -271,12 +271,15 @@ def test_desk_ui_has_aether_lumen_handoff():
     assert ".handoff-url" in css
 
 
-def test_package_json_has_windows_portable_exe():
+def test_package_json_has_windows_installer_and_portable():
     root = Path(__file__).resolve().parents[1]
     data = json.loads((root / "package.json").read_text(encoding="utf-8"))
     assert "dist:win" in data["scripts"]
-    assert data["build"]["win"]["target"][0]["target"] == "portable"
+    targets = [t["target"] for t in data["build"]["win"]["target"]]
+    assert targets == ["nsis", "portable"]
+    assert data["build"]["win"]["icon"] == "ui/forge.ico"
     assert "Forge-${version}.exe" in data["build"]["win"]["artifactName"]
+    assert data["build"]["nsis"]["uninstallDisplayName"] == "Forge"
     assert data["build"]["forceCodeSigning"] is False
 
 
