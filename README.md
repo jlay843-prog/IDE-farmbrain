@@ -38,7 +38,7 @@ That writes:
 - `dist\Forge-1.0.0.exe` — portable build (same icon)
 - `dist\win-unpacked\Forge.exe`
 
-Code signing is **blocked** (no cert). See [docs/CODE-SIGNING.md](docs/CODE-SIGNING.md). This tree has **no git remote** — see [docs/GIT-REMOTE.md](docs/GIT-REMOTE.md).
+Code signing is **blocked** (no cert). See [docs/CODE-SIGNING.md](docs/CODE-SIGNING.md). Git remote is Jeff-configured only — see [docs/GIT-REMOTE.md](docs/GIT-REMOTE.md) (`origin` → `IDE-farmbrain`).
 
 Packaged builds bundle CPython embeddable (`npm run bundle:python` before `dist:win`). The desk prefers `resources\python\python.exe` and does not need system Python on PATH. Dev trees still use `py -3`, `%LOCALAPPDATA%\Programs\Python\…`, `FORGE_PYTHON`, or a local `python\` folder. First launch of the packaged desk opens a native **Choose your Forge workspace** folder picker when `%LOCALAPPDATA%\Forge\state.json` has no workspace yet. Loopback only (`127.0.0.1:43180`). No burst/5090 while Vast is live; farm-brain apply still needs desk QC confirm.
 
@@ -64,6 +64,7 @@ forge which
 forge health
 forge log
 forge status
+forge status --json
 forge models -q
 forge use
 forge use chat --model qwen3.8:27b

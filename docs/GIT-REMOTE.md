@@ -1,19 +1,35 @@
-# Git remote (not configured)
+# Git remote
 
-This tree has **no remotes**. Forge does not invent or add `origin`.
+Forge does **not** invent remotes in code or smoke tests. Jeff adds `origin` manually when ready.
 
-## Jeff: add origin when ready
+## Configured on this PC
 
-1. Create an **empty** repository on GitHub (or your host). Do not initialize with a README if this tree already has history.
-2. Copy the clone URL (HTTPS or SSH).
-3. From this repo:
+```text
+origin  https://github.com/jlay843-prog/IDE-farmbrain.git (fetch)
+origin  https://github.com/jlay843-prog/IDE-farmbrain.git (push)
+```
+
+Verify:
 
 ```powershell
 cd C:\Users\jlay\Grok\forge
-git remote add origin <paste-url-here>
 git remote -v
 ```
 
-4. First push (when you choose): `git push -u origin <branch>`.
+Push a branch (Jeff or agent when asked):
 
-Until step 3, `git remote -v` should stay empty. Local commits only; no push from agent runs.
+```powershell
+git push -u origin <branch>
+```
+
+## Add origin on a fresh clone
+
+1. Create an **empty** repository on GitHub. Do not initialize with a README if this tree already has history.
+2. From the repo:
+
+```powershell
+git remote add origin https://github.com/jlay843-prog/IDE-farmbrain.git
+git remote -v
+```
+
+3. First push: `git push -u origin <branch>`.

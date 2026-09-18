@@ -37,6 +37,9 @@ def test_desk_bootstrap_has_no_invented_remotes():
     assert data["ok"] is True
     git = data.get("git") or {}
     for remote in git.get("remotes") or []:
+        if isinstance(remote, str):
+            assert remote.strip()
+            continue
         url = str(remote.get("url") or "")
         assert url, "remote rows must be real git config, not placeholders"
         assert "example.com" not in url

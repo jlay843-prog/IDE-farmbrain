@@ -178,6 +178,8 @@ def test_smoke_forge_checks_health_which_log_git_and_telegram_probe():
     assert "health --json" in text
     assert "/api/health" in text
     assert "which --json" in text
+    assert "status --json" in text
+    assert "/api/status" in text
     assert "/api/log" in text
     assert "log --json" in text
     assert "git --json" in text
@@ -190,6 +192,28 @@ def test_smoke_all_uses_health_json_preflight():
     text = (root / "scripts" / "smoke-all.ps1").read_text(encoding="utf-8")
     assert "health --json" in text
     assert "ConvertFrom-Json" in text
+
+
+def test_status_cli_json(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "forge.cli.status_snapshot",
+        lambda: {
+            "name": "forge",
+            "ok": True,
+            "vast_active": False,
+            "farm": {"ok": True, "url": "http://127.0.0.1:8000"},
+            "backends": {
+                "amd": {"id": "amd", "label": "EVO AMD", "ok": True, "gpu": "GTT", "base": "http://192.168.68.103:11437", "running": []},
+                "cuda": {"id": "cuda", "label": "EVO CUDA", "ok": True, "gpu": "5070", "base": "http://192.168.68.103:11434", "running": []},
+            },
+        },
+    )
+    assert main(["status", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["name"] == "forge"
+    assert payload["vast_active"] is False
+    assert payload["farm"]["ok"] is True
+    assert payload["backends"]["amd"]["ok"] is True
 
 
 def test_which_cli_json(monkeypatch, tmp_path, capsys):
@@ -236,6 +260,7 @@ def test_desk_ui_has_git_pane_and_no_push():
     html = (root / "ui" / "index.html").read_text(encoding="utf-8")
     js = (root / "ui" / "app.js").read_text(encoding="utf-8")
     assert 'id="git"' in html
+    assert "Review only" in html
     assert "/api/git/commit" in js
     assert "/api/git/diff" in js
     assert "git push" not in js.lower()

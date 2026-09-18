@@ -137,6 +137,19 @@ if (Test-Path $forgeCmd) {
   if (-not ($whichCli.resolved_model -or $whichCli.model)) { throw "forge which --json missing model" }
   if ($null -eq $whichCli.reachable) { throw "forge which --json missing reachable" }
 
+  $statusApi = Invoke-RestMethod -Uri "$base/api/status" -TimeoutSec 8
+  if (-not $statusApi.name) { throw "/api/status missing name" }
+  if ($null -eq $statusApi.vast_active) { throw "/api/status missing vast_active" }
+  if (-not $statusApi.backends) { throw "/api/status missing backends" }
+
+  $statusJson = & $forgeCmd status --json
+  if ($LASTEXITCODE -ne 0) { throw "forge status --json failed (exit $LASTEXITCODE)" }
+  $statusCli = $statusJson | ConvertFrom-Json
+  if ($statusCli.name -ne "forge") { throw "forge status --json unexpected name $($statusCli.name)" }
+  if ($statusCli.vast_active -ne $statusApi.vast_active) { throw "forge status --json vast_active mismatch vs /api/status" }
+  if ($statusCli.farm.ok -ne $statusApi.farm.ok) { throw "forge status --json farm.ok mismatch vs /api/status" }
+  if ($statusCli.backends.amd.ok -ne $statusApi.backends.amd.ok) { throw "forge status --json backends.amd mismatch vs /api/status" }
+
   $probeJson = & $forgeCmd telegram --probe --json
   if ($LASTEXITCODE -ne 0) { throw "forge telegram --probe failed (exit $LASTEXITCODE)" }
   $probe = $probeJson | ConvertFrom-Json

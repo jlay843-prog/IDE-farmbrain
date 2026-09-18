@@ -325,6 +325,7 @@ def status_snapshot(*, refresh: bool = False) -> dict[str, Any]:
         compute = compute_f.result()
     vast = vast_active(compute, dials)
     data = {
+        "name": "forge",
         "farm": health,
         "fleet": fleet,
         "dials": dials,
