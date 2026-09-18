@@ -25,7 +25,7 @@ cd C:\Users\jlay\Grok\forge
 npm install
 $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
 $env:ELECTRON_BUILDER_CACHE = "$PWD\.eb-cache"
-npm run dist:win
+.\scripts\dist-win.ps1
 npm run smoke
 npm run smoke:handoff
 npm run smoke:packaged
@@ -37,6 +37,8 @@ That writes:
 - `dist\Forge-Setup-1.0.0.exe` — NSIS installer with **Uninstall Forge** in Settings → Apps
 - `dist\Forge-1.0.0.exe` — portable build (same icon)
 - `dist\win-unpacked\Forge.exe`
+
+Code signing is **blocked** (no cert). See [docs/CODE-SIGNING.md](docs/CODE-SIGNING.md). This tree has **no git remote** — see [docs/GIT-REMOTE.md](docs/GIT-REMOTE.md).
 
 Packaged builds bundle CPython embeddable (`npm run bundle:python` before `dist:win`). The desk prefers `resources\python\python.exe` and does not need system Python on PATH. Dev trees still use `py -3`, `%LOCALAPPDATA%\Programs\Python\…`, `FORGE_PYTHON`, or a local `python\` folder. First launch of the packaged desk opens a native **Choose your Forge workspace** folder picker when `%LOCALAPPDATA%\Forge\state.json` has no workspace yet. Loopback only (`127.0.0.1:43180`). No burst/5090 while Vast is live; farm-brain apply still needs desk QC confirm.
 

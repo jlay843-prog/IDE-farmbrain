@@ -406,6 +406,7 @@ def test_package_json_has_windows_installer_and_portable():
     assert "Forge-${version}.exe" in data["build"]["win"]["artifactName"]
     assert data["build"]["nsis"]["uninstallDisplayName"] == "Forge"
     assert data["build"]["forceCodeSigning"] is False
+    assert data["build"]["win"]["signAndEditExecutable"] is False
 
 
 def test_health_cli_reports_python_and_monaco(capsys):
