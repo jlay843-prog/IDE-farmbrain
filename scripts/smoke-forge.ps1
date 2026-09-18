@@ -4,8 +4,14 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $forgeCmd = Join-Path $root "forge.cmd"
 if (Test-Path $forgeCmd) {
-  & $forgeCmd health | Out-Host
-  if ($LASTEXITCODE -gt 1) { throw "forge health failed (exit $LASTEXITCODE)" }
+  $healthJson = & $forgeCmd health --json
+  if ($LASTEXITCODE -gt 1) { throw "forge health --json failed (exit $LASTEXITCODE)" }
+  $healthCli = $healthJson | ConvertFrom-Json
+  if (-not $healthCli.ok) { throw "forge health --json ok=false" }
+  if ($healthCli.name -ne "forge") { throw "forge health --json unexpected name $($healthCli.name)" }
+  if ($healthCli.version -ne "1.0.0") { throw "forge health --json expected v1.0.0, got $($healthCli.version)" }
+  if (-not $healthCli.python.ok) { throw "forge health --json python finder failed: $($healthCli.python.error)" }
+  if (-not $healthCli.monaco.ok) { throw "forge health --json monaco vendor missing - run npm run vendor:monaco" }
 }
 
 $bind = if ($env:FORGE_BIND) { $env:FORGE_BIND } else { "127.0.0.1" }
@@ -64,6 +70,12 @@ if ($health.name -ne "forge") { throw "unexpected health name $($health.name)" }
 if ($health.version -ne "1.0.0") { throw "expected v1.0.0, got $($health.version)" }
 if (-not $health.python.ok) { throw "python finder failed: $($health.python.error)" }
 if (-not $health.monaco.ok) { throw "monaco vendor missing - run npm run vendor:monaco" }
+if (Test-Path $forgeCmd) {
+  $healthCli = (& $forgeCmd health --json | ConvertFrom-Json)
+  if ($healthCli.version -ne $health.version) { throw "forge health --json version mismatch" }
+  if ($healthCli.python.ok -ne $health.python.ok) { throw "forge health --json python mismatch vs /api/health" }
+  if ($healthCli.monaco.ok -ne $health.monaco.ok) { throw "forge health --json monaco mismatch vs /api/health" }
+}
 $monacoLoader = Invoke-WebRequest -Uri "$base/vendor/monaco-editor/min/vs/loader.js" -UseBasicParsing -TimeoutSec 5
 if ($monacoLoader.StatusCode -ne 200) { throw "monaco loader not served from loopback" }
 if ($monacoLoader.Content -notmatch "require") { throw "monaco loader looks wrong" }
@@ -116,6 +128,14 @@ if (Test-Path $forgeCmd) {
       throw "invented remote in forge git --json: $url"
     }
   }
+
+  $whichJson = & $forgeCmd which --json
+  if ($LASTEXITCODE -ne 0) { throw "forge which --json failed (exit $LASTEXITCODE)" }
+  $whichCli = $whichJson | ConvertFrom-Json
+  if (-not $whichCli.workspace) { throw "forge which --json missing workspace" }
+  if (-not $whichCli.tier) { throw "forge which --json missing tier" }
+  if (-not ($whichCli.resolved_model -or $whichCli.model)) { throw "forge which --json missing model" }
+  if ($null -eq $whichCli.reachable) { throw "forge which --json missing reachable" }
 
   $probeJson = & $forgeCmd telegram --probe --json
   if ($LASTEXITCODE -ne 0) { throw "forge telegram --probe failed (exit $LASTEXITCODE)" }

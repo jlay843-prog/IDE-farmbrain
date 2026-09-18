@@ -172,9 +172,12 @@ def test_smoke_all_script_chains_checks():
     assert "smoke:all" in data["scripts"]
 
 
-def test_smoke_forge_checks_log_and_telegram_probe():
+def test_smoke_forge_checks_health_which_log_git_and_telegram_probe():
     root = Path(__file__).resolve().parents[1]
     text = (root / "scripts" / "smoke-forge.ps1").read_text(encoding="utf-8")
+    assert "health --json" in text
+    assert "/api/health" in text
+    assert "which --json" in text
     assert "/api/log" in text
     assert "log --json" in text
     assert "git --json" in text
@@ -182,11 +185,39 @@ def test_smoke_forge_checks_log_and_telegram_probe():
     assert "farm_brain" in text
 
 
-def test_launch_script_runs_forge_health_preflight():
+def test_smoke_all_uses_health_json_preflight():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "scripts" / "smoke-all.ps1").read_text(encoding="utf-8")
+    assert "health --json" in text
+    assert "ConvertFrom-Json" in text
+
+
+def test_which_cli_json(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        "forge.cli.resolve_session",
+        lambda tier, model=None: {
+            "tier": tier,
+            "backend": {"id": "amd", "label": "EVO AMD", "gpu": "Strix Halo GTT", "ok": True},
+            "model": "qwen3-coder:30b",
+            "base": "http://192.168.68.103:11437",
+            "blocked": False,
+        },
+    )
+    assert main(["which", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["tier"] == "code"
+    assert payload["resolved_model"] == "qwen3-coder:30b"
+    assert payload["reachable"] is True
+
+
+def test_launch_script_runs_forge_health_json_preflight():
     root = Path(__file__).resolve().parents[1]
     text = (root / "scripts" / "launch-forge.ps1").read_text(encoding="utf-8")
-    assert "forge health" in text
+    assert "health --json" in text
     assert "LASTEXITCODE" in text
+    assert "ConvertFrom-Json" in text
+    assert "monaco.ok" in text
 
 
 def test_desk_ui_has_log_tab_and_stream_client():

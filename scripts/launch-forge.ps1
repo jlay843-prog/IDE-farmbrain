@@ -20,11 +20,20 @@ function Write-Forge([string]$Message) {
 
 $forgeCmd = Join-Path $Root "forge.cmd"
 if (Test-Path $forgeCmd) {
-  Write-Forge "Preflight: forge health"
-  & $forgeCmd health | Out-Host
+  Write-Forge "Preflight: forge health --json"
+  $healthJson = & $forgeCmd health --json
   if ($LASTEXITCODE -gt 1) {
     Write-Forge "forge health failed (exit $LASTEXITCODE) — fix Python or run npm run vendor:monaco"
     throw "forge health failed (exit $LASTEXITCODE)"
+  }
+  $healthCli = $healthJson | ConvertFrom-Json
+  if (-not $healthCli.python.ok) {
+    Write-Forge "forge health: python missing — $($healthCli.python.error)"
+    throw "forge health: python missing"
+  }
+  if (-not $healthCli.monaco.ok) {
+    Write-Forge "forge health: monaco missing — run npm run vendor:monaco"
+    throw "forge health: monaco missing"
   }
 }
 

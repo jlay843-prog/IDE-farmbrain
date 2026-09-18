@@ -5,8 +5,11 @@ Set-Location $Root
 
 $forgeCmd = Join-Path $Root "forge.cmd"
 if (Test-Path $forgeCmd) {
-  & $forgeCmd health | Out-Host
-  if ($LASTEXITCODE -gt 1) { throw "forge health failed (exit $LASTEXITCODE)" }
+  $healthJson = & $forgeCmd health --json
+  if ($LASTEXITCODE -gt 1) { throw "forge health --json failed (exit $LASTEXITCODE)" }
+  $healthCli = $healthJson | ConvertFrom-Json
+  if (-not $healthCli.python.ok) { throw "forge health --json: python missing" }
+  if (-not $healthCli.monaco.ok) { throw "forge health --json: monaco missing — run npm run vendor:monaco" }
 }
 
 & py -3 -m pytest tests/test_smoke.py -q
