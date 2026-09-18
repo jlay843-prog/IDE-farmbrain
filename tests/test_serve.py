@@ -171,6 +171,25 @@ def test_files_listing_has_crumbs(tmp_path, monkeypatch):
     assert "text" not in data["entries"][0]
 
 
+def test_file_put_writes_named_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    from forge.state import set_workspace
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    set_workspace(root)
+    status, payload, _ = handle_api(
+        "PUT",
+        "/api/file",
+        {},
+        {"path": "notes.txt", "text": "saved from desk\n"},
+    )
+    assert status == 200
+    data = json.loads(payload)
+    assert data["ok"] is True
+    assert (root / "notes.txt").read_text(encoding="utf-8") == "saved from desk\n"
+
+
 def test_files_search_returns_paths_not_contents(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     from forge.state import set_workspace

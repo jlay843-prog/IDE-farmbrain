@@ -27,6 +27,7 @@ $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
 $env:ELECTRON_BUILDER_CACHE = "$PWD\.eb-cache"
 npm run dist:win
 npm run smoke
+npm run smoke:handoff
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-packaged.ps1
 ```
 
@@ -36,7 +37,9 @@ That writes:
 - `dist\Forge-1.0.0.exe` — portable build (same icon)
 - `dist\win-unpacked\Forge.exe`
 
-Python 3.11+ is found without PATH (`py -3`, `%LOCALAPPDATA%\Programs\Python\…`, or `FORGE_PYTHON`). You can also drop `python.exe` in a `python\` folder next to Forge. First launch of the packaged desk opens a native **Choose your Forge workspace** folder picker when `%LOCALAPPDATA%\Forge\state.json` has no workspace yet. Loopback only (`127.0.0.1:43180`). No burst/5090 while Vast is live; farm-brain apply still needs desk QC confirm.
+Packaged builds bundle CPython embeddable (`npm run bundle:python` before `dist:win`). The desk prefers `resources\python\python.exe` and does not need system Python on PATH. Dev trees still use `py -3`, `%LOCALAPPDATA%\Programs\Python\…`, `FORGE_PYTHON`, or a local `python\` folder. First launch of the packaged desk opens a native **Choose your Forge workspace** folder picker when `%LOCALAPPDATA%\Forge\state.json` has no workspace yet. Loopback only (`127.0.0.1:43180`). No burst/5090 while Vast is live; farm-brain apply still needs desk QC confirm.
+
+The File tab keeps an in-memory Monaco buffer. **Save** or Ctrl+S writes via `PUT /api/file`. Switching files with unsaved edits asks before discarding.
 
 **Double-click Forge** on the Desktop. The desk is `http://127.0.0.1:43180`.
 

@@ -21,6 +21,9 @@ const state = {
   gitMessage: "",
   tab: "session",
   editor: null,
+  editorPath: "",
+  editorDirty: false,
+  editorSavedText: "",
   compareModels: [],
   busy: false,
   logPath: "",
@@ -31,6 +34,7 @@ const state = {
 };
 
 let qcWaiter = null;
+let discardWaiter = null;
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -83,6 +87,16 @@ function requestQcConfirm(detail) {
       gate.hidden = true;
       resolve(!!ok);
     };
+  });
+}
+
+function bindDiscard() {
+  const confirmBtn = $("#discardConfirm");
+  const cancelBtn = $("#discardCancel");
+  if (confirmBtn) confirmBtn.addEventListener("click", () => { if (discardWaiter) discardWaiter(true); });
+  if (cancelBtn) cancelBtn.addEventListener("click", () => { if (discardWaiter) discardWaiter(false); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && discardWaiter) discardWaiter(false);
   });
 }
 
@@ -566,10 +580,73 @@ async function commitGit() {
   }
 }
 
-async function openFile(rel) {
+function updateEditorBar() {
+  const pathEl = $("#editorPath");
+  const dirtyEl = $("#editorDirty");
+  const saveBtn = $("#editorSave");
+  if (pathEl) pathEl.textContent = state.editorPath || "No file open.";
+  if (dirtyEl) dirtyEl.hidden = !state.editorDirty;
+  if (saveBtn) saveBtn.disabled = !state.editorPath || !state.editorDirty;
+}
+
+function setEditorDirty(dirty) {
+  state.editorDirty = Boolean(dirty);
+  updateEditorBar();
+}
+
+function currentEditorText() {
+  if (state.editor) return state.editor.getValue();
+  const area = $("#plainEditor");
+  return area ? area.value : "";
+}
+
+async function saveOpenFile() {
+  if (!state.editorPath || !state.editorDirty) return;
+  const text = currentEditorText();
+  await api("/api/file", {
+    method: "PUT",
+    body: JSON.stringify({ path: state.editorPath, text }),
+  });
+  state.editorSavedText = text;
+  setEditorDirty(false);
+  toast(`Saved ${state.editorPath}`);
+}
+
+function requestDiscardConfirm(path) {
+  const gate = $("#discardGate");
+  const detailEl = $("#discardDetail");
+  if (!gate) return Promise.resolve(true);
+  if (detailEl) {
+    detailEl.textContent = path
+      ? `Switching files will drop unsaved changes to ${path}.`
+      : "Switching files will drop unsaved changes.";
+  }
+  gate.hidden = false;
+  return new Promise((resolve) => {
+    discardWaiter = (ok) => {
+      discardWaiter = null;
+      gate.hidden = true;
+      resolve(!!ok);
+    };
+  });
+}
+
+async function confirmDiscardEditor() {
+  if (!state.editorDirty) return true;
+  return requestDiscardConfirm(state.editorPath);
+}
+
+async function openFile(rel, opts = {}) {
+  if (!opts.force && state.editorDirty && rel !== state.editorPath) {
+    const discard = await confirmDiscardEditor();
+    if (!discard) return;
+  }
   const data = await api(`/api/file?path=${encodeURIComponent(rel)}`);
   setTab("file");
   ensureEditor();
+  state.editorPath = rel;
+  state.editorSavedText = data.text;
+  setEditorDirty(false);
   if (state.editor) {
     const model = monaco.editor.createModel(data.text, languageFor(rel), monaco.Uri.parse("file:///" + rel));
     state.editor.setModel(model);
@@ -577,6 +654,7 @@ async function openFile(rel) {
     const area = $("#plainEditor");
     if (area) area.value = data.text;
   }
+  updateEditorBar();
   renderFiles();
 }
 
@@ -608,12 +686,20 @@ function ensureEditor() {
       minimap: { enabled: false },
       wordWrap: "on",
     });
+    state.editor.onDidChangeModelContent(() => {
+      if (!state.editorPath) return;
+      setEditorDirty(currentEditorText() !== state.editorSavedText);
+    });
     return;
   }
   if (!window.monaco && !host.querySelector("textarea")) {
     const area = document.createElement("textarea");
     area.id = "plainEditor";
     area.style.cssText = "width:100%;height:100%;background:#140f0c;color:#f4e6d4;border:0;padding:12px;font-family:var(--mono);font-size:13px;";
+    area.addEventListener("input", () => {
+      if (!state.editorPath) return;
+      setEditorDirty(area.value !== state.editorSavedText);
+    });
     host.appendChild(area);
   }
 }
@@ -623,7 +709,8 @@ function setTab(name) {
   $("#session").style.display = name === "session" ? "block" : "none";
   $("#log").style.display = name === "log" ? "block" : "none";
   $("#diff").style.display = name === "diff" ? "block" : "none";
-  $("#editor").style.display = name === "file" ? "block" : "none";
+  const editorPane = $("#editorPane");
+  if (editorPane) editorPane.style.display = name === "file" ? "flex" : "none";
   const term = $("#term");
   if (term) term.style.display = name === "term" ? "flex" : "none";
   document.querySelectorAll(".center-tabs .btn").forEach((b) => {
@@ -1562,6 +1649,7 @@ async function runRecipe(id) {
 
 function bind() {
   bindQc();
+  bindDiscard();
   $("#codeModel").addEventListener("change", async () => {
     const model = $("#codeModel").value;
     if (!model) return;
@@ -1684,6 +1772,20 @@ function bind() {
   $("#prompt").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send("ask");
   });
+  const editorSave = $("#editorSave");
+  if (editorSave) {
+    editorSave.addEventListener("click", () => {
+      saveOpenFile().catch((err) => toast(String(err.message || err)));
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (state.tab !== "file" || !state.editorPath) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      saveOpenFile().catch((err) => toast(String(err.message || err)));
+    }
+  });
+  updateEditorBar();
 }
 
 window.addEventListener("load", async () => {

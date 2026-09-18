@@ -219,7 +219,18 @@ body {
 #session { height: 100%; overflow: auto; padding: 12px; }
 #log { height: 100%; overflow: auto; padding: 12px; display: none; }
 #diff { height: 100%; overflow: auto; padding: 12px; display: none; }
-#editor { height: 100%; display: none; }
+.editor-pane { height: 100%; display: none; flex-direction: column; }
+.editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+}
+.editor-bar .status-line { flex: 1; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-dirty { color: #f0a060; font-size: 12px; }
+#editor { flex: 1; min-height: 0; }
 #term { height: 100%; display: none; flex-direction: column; min-height: 0; }
 #termOut {
   flex: 1;

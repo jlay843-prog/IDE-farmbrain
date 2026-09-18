@@ -286,10 +286,35 @@ def test_desk_ui_has_local_terminal_pane():
     assert "import subprocess" not in tools
 
 
+def test_desk_ui_has_monaco_save_buffer():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    css = (root / "ui" / "styles.css").read_text(encoding="utf-8")
+    assert 'id="editorSave"' in html
+    assert 'id="editorDirty"' in html
+    assert 'id="discardGate"' in html
+    assert "saveOpenFile" in js
+    assert "requestDiscardConfirm" in js
+    assert "editorDirty" in js
+    assert "window.confirm" not in js
+    assert ".editor-bar" in css
+
+
+def test_smoke_aether_handoff_script_exists():
+    root = Path(__file__).resolve().parents[1]
+    script = root / "scripts" / "smoke-aether-handoff.ps1"
+    assert script.is_file()
+    text = script.read_text(encoding="utf-8")
+    assert "forge-handoff.json" in text
+    assert "api/forge-handoff" in text
+
+
 def test_package_json_has_windows_installer_and_portable():
     root = Path(__file__).resolve().parents[1]
     data = json.loads((root / "package.json").read_text(encoding="utf-8"))
     assert "dist:win" in data["scripts"]
+    assert "bundle:python" in data["scripts"]
     targets = [t["target"] for t in data["build"]["win"]["target"]]
     assert targets == ["nsis", "portable"]
     assert data["build"]["win"]["icon"] == "ui/forge.ico"

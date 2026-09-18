@@ -20,6 +20,8 @@ scripts\forge-telegram.cmd
 
 `forge telegram` refuses to poll unless `COMPUTERNAME` contains `Legion`.
 
+Live polling needs `C:\Users\jlay\secrets\forge_telegram_token.txt` (or `FORGE_TELEGRAM_TOKEN`) **and** `forge_telegram_allow.txt`. Without the token file, skip polling and use the desk or CLI on Legion.
+
 ## Commands
 
 ```

@@ -16,3 +16,4 @@ Thumbs.db
 .mypy_cache/
 .ruff_cache/
 ui-dist/
+python/

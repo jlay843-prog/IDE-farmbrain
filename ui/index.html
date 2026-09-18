@@ -79,7 +79,14 @@
               <div id="changeList" class="change-list" hidden></div>
               <div id="diffBody"></div>
             </div>
-            <div id="editor"></div>
+            <div id="editorPane" class="editor-pane">
+              <div id="editorBar" class="editor-bar">
+                <span id="editorPath" class="status-line">No file open.</span>
+                <span id="editorDirty" class="editor-dirty" hidden aria-live="polite">● unsaved</span>
+                <button id="editorSave" class="btn primary" type="button" disabled>Save</button>
+              </div>
+              <div id="editor"></div>
+            </div>
             <div id="term">
               <p id="termMeta" class="status-line">Local cmd in this workspace. Jeff-only — the model cannot see or run this pane.</p>
               <pre id="termOut"></pre>
@@ -112,6 +119,16 @@
           <button id="compareEditBtn" class="btn">Compare edit</button>
         </div>
       </footer>
+    </div>
+    <div id="discardGate" class="qc-gate" hidden>
+      <div class="qc-card" role="dialog" aria-modal="true" aria-labelledby="discardTitle">
+        <h3 id="discardTitle">Discard unsaved edits?</h3>
+        <p id="discardDetail">Switching files will drop changes that are not saved.</p>
+        <div class="qc-actions">
+          <button id="discardCancel" class="btn" type="button">Keep editing</button>
+          <button id="discardConfirm" class="btn primary" type="button">Discard</button>
+        </div>
+      </div>
     </div>
     <div id="qcGate" class="qc-gate" hidden>
       <div class="qc-card" role="dialog" aria-modal="true" aria-labelledby="qcTitle">
