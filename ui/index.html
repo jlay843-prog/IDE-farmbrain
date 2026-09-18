@@ -147,11 +147,11 @@
       </div>
     </div>
     <script src="/app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js" onerror="window.monacoFailed=true"></script>
+    <script src="/vendor/monaco-editor/min/vs/loader.js" onerror="window.monacoFailed=true"></script>
     <script>
       try {
         if (typeof require === "function" && require.config) {
-          require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" } });
+          require.config({ paths: { vs: "/vendor/monaco-editor/min/vs" } });
           require(["vs/editor/editor.main"], function () {
             window.monacoReady = true;
           });

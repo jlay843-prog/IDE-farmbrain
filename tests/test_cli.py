@@ -301,6 +301,16 @@ def test_desk_ui_has_monaco_save_buffer():
     assert ".editor-bar" in css
 
 
+def test_desk_ui_uses_local_monaco_vendor():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    assert "/vendor/monaco-editor/min/vs/loader.js" in html
+    assert "cdn.jsdelivr.net" not in html
+    script = root / "scripts" / "vendor-monaco.ps1"
+    assert script.is_file()
+    assert "monaco-editor" in script.read_text(encoding="utf-8")
+
+
 def test_smoke_aether_handoff_script_exists():
     root = Path(__file__).resolve().parents[1]
     script = root / "scripts" / "smoke-aether-handoff.ps1"

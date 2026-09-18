@@ -17,17 +17,24 @@ function Test-ForgeHealth {
 
 function Start-ForgeServer {
   $root = Split-Path -Parent $PSScriptRoot
+  $env:PYTHONPATH = Join-Path $root "src"
+  $forgeCmd = Join-Path $root "forge.cmd"
+  if (Test-Path $forgeCmd) {
+    return Start-Process -FilePath "cmd.exe" -ArgumentList @(
+      "/c", $forgeCmd, "serve", "--host", $bind, "--port", $port
+    ) -PassThru -WorkingDirectory $root -WindowStyle Hidden
+  }
   $py = Get-Command py -ErrorAction SilentlyContinue
   if ($py) {
     return Start-Process -FilePath $py.Source -ArgumentList @(
       "-3", "-m", "forge", "serve", "--host", $bind, "--port", $port
-    ) -PassThru -WorkingDirectory $root -WindowStyle Hidden
+    ) -PassThru -WorkingDirectory $root -WindowStyle Hidden -Environment @{ PYTHONPATH = $env:PYTHONPATH }
   }
   $python = Get-Command python -ErrorAction SilentlyContinue
   if (-not $python) { throw "Python 3.11+ (py -3 or python) must be on PATH for the packaged desk." }
   return Start-Process -FilePath $python.Source -ArgumentList @(
     "-m", "forge", "serve", "--host", $bind, "--port", $port
-  ) -PassThru -WorkingDirectory $root -WindowStyle Hidden
+  ) -PassThru -WorkingDirectory $root -WindowStyle Hidden -Environment @{ PYTHONPATH = $env:PYTHONPATH }
 }
 
 if (-not (Test-ForgeHealth)) {
@@ -49,6 +56,10 @@ if (-not $health.ok) { throw "health ok=false" }
 if ($health.name -ne "forge") { throw "unexpected health name $($health.name)" }
 if ($health.version -ne "1.0.0") { throw "expected v1.0.0, got $($health.version)" }
 if (-not $health.python.ok) { throw "python finder failed: $($health.python.error)" }
+if (-not $health.monaco.ok) { throw "monaco vendor missing - run npm run vendor:monaco" }
+$monacoLoader = Invoke-WebRequest -Uri "$base/vendor/monaco-editor/min/vs/loader.js" -UseBasicParsing -TimeoutSec 5
+if ($monacoLoader.StatusCode -ne 200) { throw "monaco loader not served from loopback" }
+if ($monacoLoader.Content -notmatch "require") { throw "monaco loader looks wrong" }
 
 $desk = Invoke-RestMethod -Uri "$base/api/desk" -TimeoutSec 5
 if (-not $desk.ok) { throw "desk bootstrap failed" }

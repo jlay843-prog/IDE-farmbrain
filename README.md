@@ -39,7 +39,7 @@ That writes:
 
 Packaged builds bundle CPython embeddable (`npm run bundle:python` before `dist:win`). The desk prefers `resources\python\python.exe` and does not need system Python on PATH. Dev trees still use `py -3`, `%LOCALAPPDATA%\Programs\Python\…`, `FORGE_PYTHON`, or a local `python\` folder. First launch of the packaged desk opens a native **Choose your Forge workspace** folder picker when `%LOCALAPPDATA%\Forge\state.json` has no workspace yet. Loopback only (`127.0.0.1:43180`). No burst/5090 while Vast is live; farm-brain apply still needs desk QC confirm.
 
-The File tab keeps an in-memory Monaco buffer. **Save** or Ctrl+S writes via `PUT /api/file`. Switching files with unsaved edits asks before discarding.
+The File tab keeps an in-memory Monaco buffer (vendored locally — no CDN). Run `npm run vendor:monaco` once per dev tree; `dist:win` vendors automatically. **Save** or Ctrl+S writes via `PUT /api/file`. Switching files with unsaved edits asks before discarding.
 
 **Double-click Forge** on the Desktop. The desk is `http://127.0.0.1:43180`.
 
@@ -91,7 +91,7 @@ Bare `forge` prints the pinned session and help. Turns are appended to `%LOCALAP
 
 `forge git` prints local status (branch, changed paths, remotes if any). `forge git diff [path]` prints a unified diff, including untracked files. `forge git commit -m "message"` commits locally. There is **no push, no PR, and no remote is invented**. Ghost Project rows (missing folders, leftover `forge-w7-farm-brain`, `%TEMP%\farm-brain`) are dropped on load.
 
-`forge telegram` is a **Legion-only** `/forge` alias. It shells `forge.cmd` on this PC. Do not add it to Farm Brain (`/coder` stays on EVO). Token: `FORGE_TELEGRAM_TOKEN` or `C:\Users\jlay\secrets\forge_telegram_token.txt`. Allowlist: `FORGE_TELEGRAM_ALLOW` or `forge_telegram_allow.txt`. Probe with `forge telegram --probe`. Poll with `forge telegram` or `scripts\forge-telegram.cmd`. Burst/edit/apply are refused.
+`forge telegram` is a **Legion-only** `/forge` alias. It shells `forge.cmd` on this PC. Do not add it to Farm Brain (`/coder` stays on EVO). Token: `FORGE_TELEGRAM_TOKEN` or `C:\Users\jlay\secrets\forge_telegram_token.txt`. Allowlist: `FORGE_TELEGRAM_ALLOW` or `forge_telegram_allow.txt`. Probe with `forge telegram --probe`. Live poll needs the token file — without it, use the desk or CLI on Legion. Poll with `forge telegram` or `scripts\forge-telegram.cmd`. Burst/edit/apply are refused.
 
 `forge edit` may call **read / list / grep** on the workspace first (no shell). It then prints a unified diff, a **change list**, and numbered **hunks**. `[y/N]` applies the whole reply; `--hunk 0 --hunk 2` writes only those hunks. `farm-brain` apply is blocked unless you pass `--i-understand-qc` — the existing coder QC gate still applies. Check multiple files in the desk (or pass `--file` more than once) so one edit can name several paths.
 

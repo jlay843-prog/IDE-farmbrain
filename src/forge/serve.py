@@ -48,7 +48,11 @@ MIME = {
     ".json": "application/json; charset=utf-8",
     ".png": "image/png",
     ".ico": "image/x-icon",
+    ".ttf": "font/ttf",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
 }
+MONACO_LOADER = UI_DIR / "vendor" / "monaco-editor" / "min" / "vs" / "loader.js"
 STREAM_PATHS = {"/api/ask/stream", "/api/edit/stream"}
 
 
@@ -83,12 +87,14 @@ def _git_or_empty(root):
 def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, bytes, str]:
     if path == "/api/health":
         py = find_python()
+        monaco = MONACO_LOADER.is_file()
         return _json_bytes(
             {
                 "ok": True,
                 "name": "forge",
                 "version": __version__,
                 "python": py,
+                "monaco": {"ok": monaco, "path": str(MONACO_LOADER.relative_to(UI_DIR)) if monaco else ""},
             }
         )
     if path == "/api/desk":

@@ -11,7 +11,8 @@
     "serve": "py -3 -m forge serve",
     "build:icon": "py -3 scripts/build-icon.py",
     "bundle:python": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bundle-python.ps1",
-    "dist:win": "npm run bundle:python && npm run build:icon && electron-builder --win nsis portable --x64",
+    "vendor:monaco": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/vendor-monaco.ps1",
+    "dist:win": "npm run bundle:python && npm run vendor:monaco && npm run build:icon && electron-builder --win nsis portable --x64",
     "smoke": "py -3 -m pytest tests/test_smoke.py -q && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-forge.ps1",
     "smoke:handoff": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-aether-handoff.ps1"
   },

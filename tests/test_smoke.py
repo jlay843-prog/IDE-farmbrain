@@ -18,6 +18,8 @@ def test_health_reports_v1():
     assert "json" in ctype
     assert data["python"]["ok"] is True
     assert data["python"]["exe"]
+    assert "monaco" in data
+    assert isinstance(data["monaco"]["ok"], bool)
 
 
 def test_desk_bootstrap_has_no_invented_remotes():
