@@ -67,11 +67,12 @@ def stop() -> dict[str, Any]:
     if proc and proc.poll() is None:
         try:
             if os.name == "nt":
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 subprocess.run(
                     ["taskkill", "/pid", str(proc.pid), "/t", "/f"],
                     capture_output=True,
-                    windowsHide=True,
                     timeout=8,
+                    creationflags=flags,
                 )
             else:
                 proc.terminate()
