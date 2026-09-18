@@ -1,6 +1,8 @@
-# Code signing (blocked)
+# Code signing (later milestone)
 
-Forge Windows builds are **unsigned** until Jeff supplies a code-signing certificate. Do not buy or install a cert in this tree.
+Forge v1 ships **unsigned** NSIS + portable builds on this PC. Personal farm IDE — do not buy or wait for a cert. SmartScreen warnings on first run are expected.
+
+Signing is optional polish **after** the app is useful here, not a v1 blocker.
 
 ## Current config (keep until cert)
 

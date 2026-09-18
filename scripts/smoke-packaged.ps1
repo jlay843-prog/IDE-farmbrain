@@ -36,7 +36,6 @@ for ($i = 0; $i -lt 90; $i++) {
   if ($p.HasExited) { break }
   Start-Sleep -Milliseconds 500
 }
-if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
 if (-not $ok) { throw "Packaged Forge.exe did not report v1.0.0 on $base" }
 
 if (-not $health.python.ok) { throw "packaged python finder failed: $($health.python.error)" }
@@ -47,5 +46,7 @@ if ($monacoLoader.StatusCode -ne 200) { throw "packaged monaco loader not served
 $desk = Invoke-RestMethod -Uri "$base/api/desk" -TimeoutSec 5
 if (-not $desk.ok) { throw "packaged desk bootstrap failed" }
 if ($desk.term.model_tool) { throw "terminal must not be a model tool" }
+
+if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
 
 Write-Host "Packaged smoke OK: forge $($health.version) @ $base (python + monaco + desk)"
