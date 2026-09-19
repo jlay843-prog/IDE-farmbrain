@@ -21,8 +21,8 @@ from forge.probe import resolve_session
 from forge.state import is_protected_workspace, load_state, workspace_path
 from forge.tools import (
     MAX_ROUNDS,
-    OLLAMA_TOOLS,
     format_tool_result,
+    native_ollama_tools,
     parse_tool_markup,
     run_tool,
     strip_tool_markup,
@@ -78,7 +78,7 @@ def normalize_history(history: list | None) -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         role = str(item.get("role") or "").strip()
-        content = str(item.get("content") or "").strip()
+        content = strip_tool_markup(str(item.get("content") or "")).strip()
         if role in {"user", "assistant"} and content:
             out.append({"role": role, "content": content})
     return out[-MAX_HISTORY_TURNS:]
@@ -170,14 +170,16 @@ def _generate(
     last: dict[str, Any] = {"text": "", "model": sess["model"], "done": True, "raw": {}, "tools": []}
     rounds = MAX_ROUNDS if use_tools and workspace is not None else 0
     for step in range(rounds + 1):
-        offer = OLLAMA_TOOLS if use_tools and step < rounds else None
-        if on_tool and offer:
+        inspecting = use_tools and step < rounds
+        offer = native_ollama_tools(sess.get("model")) if inspecting else None
+        if on_tool and inspecting:
             on_tool({"phase": "round", "round": step + 1, "max": rounds + 1})
         last = _one_turn(sess, messages, tools=offer, on_delta=on_delta)
         reply_text = last.get("text") or ""
-        calls = tool_calls_from_reply(reply_text, last.get("raw")) if offer else []
-        if offer and calls and not change_list(reply_text):
-            messages.append({"role": "assistant", "content": reply_text})
+        calls = tool_calls_from_reply(reply_text, last.get("raw")) if inspecting else []
+        if inspecting and calls and not change_list(reply_text):
+            cleaned = strip_tool_markup(reply_text).strip()
+            messages.append({"role": "assistant", "content": cleaned or "(tool inspection)"})
             blobs: list[str] = []
             for call in calls:
                 args = call.get("args") if isinstance(call.get("args"), dict) else {}
@@ -206,8 +208,9 @@ def _generate(
                 }
             )
             continue
-        if offer and not change_list(reply_text) and step < rounds:
-            messages.append({"role": "assistant", "content": reply_text})
+        if inspecting and not change_list(reply_text) and step < rounds:
+            cleaned = strip_tool_markup(reply_text).strip()
+            messages.append({"role": "assistant", "content": cleaned or reply_text})
             messages.append(
                 {
                     "role": "user",

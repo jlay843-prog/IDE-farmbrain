@@ -27,6 +27,15 @@ def test_normalize_history_keeps_user_and_assistant():
     ]
 
 
+def test_normalize_history_strips_tool_xml():
+    raw = [
+        {"role": "user", "content": "create app"},
+        {"role": "assistant", "content": "I'll inspect.\n" + LEAKED_TOOL_XML},
+    ]
+    out = normalize_history(raw)
+    assert out == [{"role": "user", "content": "create app"}, {"role": "assistant", "content": "I'll inspect."}]
+
+
 def test_sanitize_ask_reply_strips_tool_xml():
     assert sanitize_ask_reply(LEAKED_TOOL_XML) == ASK_TOOL_NUDGE
     assert sanitize_ask_reply("Forge can help with code.\n" + LEAKED_TOOL_XML) == "Forge can help with code."

@@ -2,7 +2,7 @@ import json
 from io import BytesIO
 
 from forge.httputil import iter_ndjson
-from forge.llm import chat, iter_chat
+from forge.llm import chat, iter_chat, ollama_tool_xml_error
 
 
 class FakeResp:
@@ -44,23 +44,38 @@ def test_chat_sends_stream_true_and_joins_deltas(monkeypatch):
 
 
 def test_iter_chat_passes_tools(monkeypatch):
-    seen = {}
+    seen = {"calls": 0}
 
     def fake_urlopen(req, timeout=None):
-        seen["body"] = json.loads(req.data.decode("utf-8"))
-        return FakeResp(b'{"message":{"content":"","tool_calls":[{"function":{"name":"list","arguments":{"path":"src"}}}]},"done":true}\n')
+        seen["calls"] += 1
+        body = json.loads(req.data.decode("utf-8"))
+        if seen["calls"] == 1:
+            assert "tools" in body
+            raise RuntimeError(
+                "Ollama http://x returned error: expected element type <function> but have <parameter>"
+            )
+        assert "tools" not in body
+        return FakeResp(b'{"message":{"content":"ok"},"done":true}\n')
 
     monkeypatch.setattr("forge.httputil.urllib.request.urlopen", fake_urlopen)
     chunks = list(
         iter_chat(
             "http://x",
             "m",
-            [{"role": "user", "content": "hi"}],
+            [{"role": "assistant", "content": "<parameter=path>src</parameter>"}],
             tools=[{"type": "function", "function": {"name": "list"}}],
         )
     )
-    assert seen["body"]["tools"][0]["function"]["name"] == "list"
-    assert chunks[-1]["tool_calls"][0]["function"]["name"] == "list"
+    assert seen["calls"] == 2
+    assert chunks[-1]["delta"] == "ok"
+
+
+def test_ollama_tool_xml_error_matches_parser_message():
+    err = RuntimeError("expected element type <function> but have <parameter>")
+    assert ollama_tool_xml_error(err) is True
+
+
+def test_iter_chat_streams_without_tools(monkeypatch):
     def fake_urlopen(req, timeout=None):
         return FakeResp(b'{"message":{"content":"A"},"done":false}\n{"message":{"content":"B"},"done":true}\n')
 

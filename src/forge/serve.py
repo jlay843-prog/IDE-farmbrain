@@ -29,6 +29,7 @@ from forge.log import log_path, log_turn, read_turns
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
 from forge.easy import classify_easy_prompt
+from forge.llm import ollama_tool_xml_error
 from forge.project import create_project, sanitize_project_name
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
@@ -58,6 +59,15 @@ MIME = {
     ".woff2": "font/woff2",
 }
 STREAM_PATHS = {"/api/ask/stream", "/api/edit/stream", "/api/easy/stream"}
+
+
+def desk_error_message(exc: BaseException) -> str:
+    if ollama_tool_xml_error(exc):
+        return (
+            "Forge lost sync with the code model while inspecting files. "
+            "Try your prompt again — Forge will continue with read/list/grep."
+        )
+    return str(exc)
 
 
 def _json_bytes(data, status: int = 200) -> tuple[int, bytes, str]:
@@ -410,7 +420,7 @@ class Handler(BaseHTTPRequestHandler):
             log_turn(routed if kind == "easy" else kind, result, prompt)
             self._write_sse({"done": True, **result})
         except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:
-            self._write_sse({"done": True, "ok": False, "error": str(exc)})
+            self._write_sse({"done": True, "ok": False, "error": desk_error_message(exc)})
         except OSError:
             return
 

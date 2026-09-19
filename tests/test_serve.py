@@ -1,7 +1,7 @@
 import json
 
 from forge.log import log_turn
-from forge.serve import handle_api, sse_bytes
+from forge.serve import desk_error_message, handle_api, sse_bytes
 
 
 def test_health():
@@ -261,3 +261,10 @@ def test_vault_search_endpoint(tmp_path, monkeypatch):
     assert "handoff" in desk
     assert "aether" in desk["handoff"]
     assert "lumen" in desk["handoff"]
+
+
+def test_desk_error_message_hides_ollama_tool_xml_parser():
+    err = RuntimeError("Ollama http://192.168.68.103:11437 returned error: expected element type <function> but have <parameter>")
+    msg = desk_error_message(err)
+    assert "expected element type" not in msg
+    assert "read/list/grep" in msg

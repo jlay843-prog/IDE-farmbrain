@@ -1,8 +1,18 @@
 from pathlib import Path
+import json
 
 from forge.session import run_edit
 from forge.state import set_workspace
-from forge.tools import ALLOWED, OLLAMA_TOOLS, parse_tool_markup, run_tool, strip_tool_markup, tool_calls_from_reply
+from forge.tools import (
+    ALLOWED,
+    OLLAMA_TOOLS,
+    contains_tool_markup,
+    parse_tool_markup,
+    run_tool,
+    sanitize_messages_for_ollama,
+    strip_tool_markup,
+    tool_calls_from_reply,
+)
 
 LEAKED_TOOL_XML = """<tool name="grep">
 <parameter=path>
@@ -85,14 +95,34 @@ def test_parse_function_close_and_parameter_name_attr():
     assert strip_tool_markup(xml) == ""
 
 
+def test_sanitize_messages_strips_bare_parameter_tags():
+    bare = """I'll inspect first.
+<parameter=path>
+src/*.py
+</parameter>
+<parameter=pattern>
+import
+</parameter>"""
+    assert contains_tool_markup(bare)
+    cleaned = sanitize_messages_for_ollama([{"role": "assistant", "content": bare}])
+    assert cleaned[0]["content"] == "I'll inspect first."
+    assert "<parameter" not in cleaned[0]["content"].lower()
+
+
+def test_sanitize_messages_replaces_tool_only_turn():
+    cleaned = sanitize_messages_for_ollama([{"role": "assistant", "content": LEAKED_TOOL_XML}])
+    assert cleaned[0]["content"] == "(prior tool inspection)"
+
+
 def test_edit_executes_leaked_grep_shape(tmp_path: Path, monkeypatch):
     root = _proj(tmp_path)
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     set_workspace(root)
-    seen = {"n": 0}
+    seen = {"n": 0, "messages": []}
 
     def fake_chat(base, model, messages, tools=None, **kwargs):
         seen["n"] += 1
+        seen["messages"] = messages
         if seen["n"] == 1:
             return {
                 "text": LEAKED_TOOL_XML,
@@ -101,6 +131,7 @@ def test_edit_executes_leaked_grep_shape(tmp_path: Path, monkeypatch):
                 "raw": {},
                 "tool_calls": [],
             }
+        assert "<parameter" not in json.dumps(messages).lower()
         return {
             "text": "--- a/src/hello.py\n+++ b/src/hello.py\n@@ -1,2 +1,2 @@\n def hello():\n-    return 'hi'\n+    return 'hello'\n",
             "model": model,
@@ -121,6 +152,7 @@ def test_edit_executes_leaked_grep_shape(tmp_path: Path, monkeypatch):
     )
     monkeypatch.setattr("forge.session.chat", fake_chat)
     out = run_edit("find imports", [], workspace=root)
+    assert seen["n"] == 2
     assert [t["name"] for t in out["tools"]] == ["grep"]
     assert out["tools"][0]["ok"] is True
     assert "<tool" not in out["text"]
@@ -136,7 +168,7 @@ def test_edit_tool_loop_then_diff(tmp_path: Path, monkeypatch):
     def fake_chat(base, model, messages, tools=None, **kwargs):
         seen["n"] += 1
         if seen["n"] == 1:
-            assert tools is not None
+            assert tools is None
             return {
                 "text": '<tool name="read">{"path": "src/hello.py"}</tool>',
                 "model": model,

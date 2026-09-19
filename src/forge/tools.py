@@ -39,6 +39,15 @@ PARAM_TAG_RE = re.compile(
 )
 TOOL_WRAPPER_RE = re.compile(r"</?tool_call\s*>", re.I)
 ORPHAN_CLOSE_RE = re.compile(rf"</(?:tool|function|tool_call)\s*>", re.I)
+ORPHAN_PARAM_BLOCK_RE = re.compile(
+    r"<parameter(?:\s+name\s*=\s*[\"']?\w+[\"']?|=([a-z_]+))\s*>.*?</parameter>",
+    re.I | re.S,
+)
+ORPHAN_PARAM_OPEN_RE = re.compile(
+    r"<parameter(?:\s+name\s*=\s*[\"']?\w+[\"']?|=([a-z_]+))\s*>",
+    re.I,
+)
+ORPHAN_PARAM_CLOSE_RE = re.compile(r"</parameter\s*>", re.I)
 
 OLLAMA_TOOLS = [
     {
@@ -174,9 +183,49 @@ def parse_tool_markup(text: str) -> list[dict[str, Any]]:
 def strip_tool_markup(text: str) -> str:
     raw = text or ""
     cleaned = TOOL_BLOCK_RE.sub("", raw)
+    cleaned = ORPHAN_PARAM_BLOCK_RE.sub("", cleaned)
     cleaned = TOOL_WRAPPER_RE.sub("", cleaned)
     cleaned = ORPHAN_CLOSE_RE.sub("", cleaned)
+    cleaned = ORPHAN_PARAM_OPEN_RE.sub("", cleaned)
+    cleaned = ORPHAN_PARAM_CLOSE_RE.sub("", cleaned)
     return cleaned.strip()
+
+
+def contains_tool_markup(text: str) -> bool:
+    raw = text or ""
+    if TOOL_OPEN_RE.search(raw) or TOOL_BLOCK_RE.search(raw):
+        return True
+    if ORPHAN_PARAM_OPEN_RE.search(raw) or ORPHAN_PARAM_CLOSE_RE.search(raw):
+        return True
+    return bool(TOOL_WRAPPER_RE.search(raw) or ORPHAN_CLOSE_RE.search(raw))
+
+
+def sanitize_messages_for_ollama(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Strip tool-call XML from chat history before Ollama re-parses it."""
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        row = dict(msg)
+        content = row.get("content")
+        if isinstance(content, str) and content:
+            cleaned = strip_tool_markup(content)
+            if cleaned:
+                row["content"] = cleaned
+            elif contains_tool_markup(content):
+                row["content"] = "(prior tool inspection)"
+            else:
+                row["content"] = content
+        if row.get("role") == "assistant" and row.get("tool_calls"):
+            row.pop("tool_calls", None)
+        out.append(row)
+    return out
+
+
+def native_ollama_tools(model: str | None) -> list[dict[str, Any]] | None:
+    """Forge uses markup parsing for qwen3-coder; native Ollama tools re-scan XML and choke on <parameter>."""
+    _ = model
+    return None
 
 
 def tool_calls_from_reply(text: str, raw: dict[str, Any] | None = None) -> list[dict[str, Any]]:
