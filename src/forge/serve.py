@@ -380,6 +380,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not prompt:
                 raise SessionError("empty prompt")
+            easy = kind == "easy"
             if routed == "edit":
                 result = run_edit(
                     prompt,
@@ -388,6 +389,7 @@ class Handler(BaseHTTPRequestHandler):
                     tier=body.get("tier"),
                     model=body.get("model"),
                     history=history,
+                    easy=easy,
                     on_begin=on_begin,
                     on_delta=on_delta,
                     on_tool=on_tool,
@@ -399,6 +401,7 @@ class Handler(BaseHTTPRequestHandler):
                     tier=body.get("tier"),
                     model=body.get("model"),
                     history=history,
+                    easy=easy,
                     on_begin=on_begin,
                     on_delta=on_delta,
                 )

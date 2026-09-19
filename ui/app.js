@@ -2082,7 +2082,7 @@ function bind() {
       try {
         await setUiMode("easy");
         await maybeShowEasySetup();
-        toast("Easy mode — one chat, Accept to apply changes.");
+        toast("Easy mode — chat here; Accept writes files locally (no shell).");
       } catch (err) {
         toast(String(err.message || err));
       }

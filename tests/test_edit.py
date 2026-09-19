@@ -2,6 +2,8 @@ from pathlib import Path
 
 from forge.edit import (
     ASK_SYSTEM,
+    EASY_ASK_SYSTEM,
+    EASY_EDIT_PREFIX,
     EDIT_SYSTEM,
     apply_diff,
     change_list,
@@ -41,12 +43,28 @@ MULTI = """--- a/hello.py
 
 def test_ask_system_no_shell_file_guidance():
     lower = ASK_SYSTEM.lower()
-    assert "ask mode cannot create or modify files" in lower
+    assert "in ask mode you answer and plan in chat" in lower
     assert "never suggest bash" in lower
     assert "touch" in lower
     assert "powershell" in lower
     assert "apply hunk" in lower
     assert "edit on the desk" in lower
+    assert "never say you cannot touch the filesystem" in lower
+    assert "never dump raw tool xml" in lower
+    assert "deploy or host servers" in lower
+
+
+def test_easy_ask_system_capabilities():
+    lower = EASY_ASK_SYSTEM.lower()
+    assert "easy mode" in lower
+    assert "accept" in lower
+    assert "open" in lower
+    assert "never say you cannot touch the filesystem" in lower
+    assert "never dump raw tool xml" in lower
+    assert "no shell" in lower
+    assert "advanced mode's terminal" in lower
+    assert "deploy or host servers" in lower
+    assert "browser automation" in lower
 
 
 def test_edit_system_new_files_and_no_shell():
@@ -57,6 +75,14 @@ def test_edit_system_new_files_and_no_shell():
     assert "new files are allowed" in lower
     assert "unified diff" in lower
     assert "never tell jeff to click edit again" in lower
+    assert "never say you cannot touch the filesystem" in lower
+    assert "never dump raw tool xml" in lower
+
+
+def test_easy_edit_prefix_mentions_accept():
+    lower = EASY_EDIT_PREFIX.lower()
+    assert "accept" in lower
+    assert "open" in lower
 
 
 def test_extract_diff_from_fence():

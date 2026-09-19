@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from forge.context import format_context, read_files
-from forge.edit import ASK_SYSTEM, EDIT_SYSTEM, apply_diff, change_list, hunk_list
+from forge.edit import (
+    ASK_SYSTEM,
+    EASY_ASK_SYSTEM,
+    EASY_EDIT_PREFIX,
+    EDIT_SYSTEM,
+    apply_diff,
+    change_list,
+    hunk_list,
+)
 from forge.llm import chat, iter_chat
 from forge.probe import resolve_session
 from forge.state import is_protected_workspace, load_state, workspace_path
@@ -24,6 +32,10 @@ from forge.tools import (
 ASK_TOOL_NUDGE = (
     "Ask mode can't read or search files. Switch to Edit on the desk, "
     "check the target file(s) as named context, send your prompt, then review and Apply hunk."
+)
+EASY_ASK_TOOL_NUDGE = (
+    "This chat turn is for questions and planning. Describe what to create or change "
+    "and Forge will return a diff for you to Accept."
 )
 
 
@@ -87,12 +99,13 @@ def build_messages(
     return messages
 
 
-def sanitize_ask_reply(text: str) -> str:
+def sanitize_ask_reply(text: str, *, easy: bool = False) -> str:
     raw = text or ""
     if not parse_tool_markup(raw):
         return raw
     cleaned = strip_tool_markup(raw).strip()
-    return cleaned or ASK_TOOL_NUDGE
+    fallback = EASY_ASK_TOOL_NUDGE if easy else ASK_TOOL_NUDGE
+    return cleaned or fallback
 
 
 def _emit_begin(sess: dict[str, Any], on_begin: BeginFn | None) -> None:
@@ -226,13 +239,15 @@ def run_ask(
     model: str | None = None,
     workspace: Path | None = None,
     history: list | None = None,
+    easy: bool = False,
     on_begin: BeginFn | None = None,
     on_delta: DeltaFn | None = None,
 ) -> dict:
     sess = active_session(tier, model, purpose="ask")
     root = workspace or workspace_path()
     named = read_files(root, files or []) if root and files else []
-    reply = _generate(sess, ASK_SYSTEM, prompt, named, history=history, on_begin=on_begin, on_delta=on_delta)
+    system = EASY_ASK_SYSTEM if easy else ASK_SYSTEM
+    reply = _generate(sess, system, prompt, named, history=history, on_begin=on_begin, on_delta=on_delta)
     return {
         "ok": True,
         "kind": "ask",
@@ -241,8 +256,9 @@ def run_ask(
         "backend": sess["backend"]["id"],
         "gpu": sess["backend"]["gpu"],
         "base": sess["base"],
-        "text": sanitize_ask_reply(reply["text"]),
+        "text": sanitize_ask_reply(reply["text"], easy=easy),
         "files": [f["path"] for f in named],
+        "easy": easy,
     }
 
 
@@ -256,6 +272,7 @@ def run_edit(
     model: str | None = None,
     workspace: Path | None = None,
     history: list | None = None,
+    easy: bool = False,
     on_begin: BeginFn | None = None,
     on_delta: DeltaFn | None = None,
     on_tool: ToolFn | None = None,
@@ -269,9 +286,10 @@ def run_edit(
             "workspace is farm-brain; apply is blocked unless you pass --i-understand-qc"
         )
     named = read_files(root, files or []) if files else []
+    system = f"{EASY_EDIT_PREFIX}{EDIT_SYSTEM}" if easy else EDIT_SYSTEM
     reply = _generate(
         sess,
-        EDIT_SYSTEM,
+        system,
         prompt,
         named,
         workspace=root,
@@ -298,6 +316,7 @@ def run_edit(
         "applied": False,
         "changed": [],
         "protected": is_protected_workspace(root),
+        "easy": easy,
     }
     if apply:
         result["changed"] = apply_diff(root, reply["text"])
