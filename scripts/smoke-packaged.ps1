@@ -3,6 +3,8 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Exe = Join-Path $Root "dist\win-unpacked\Forge.exe"
 if (-not (Test-Path $Exe)) { throw "Run npm run dist:win first. Missing $Exe" }
+$pkg = Get-Content (Join-Path $Root "package.json") -Raw | ConvertFrom-Json
+$wantVersion = $pkg.version
 
 $bind = if ($env:FORGE_BIND) { $env:FORGE_BIND } else { "127.0.0.1" }
 $port = if ($env:FORGE_PORT) { $env:FORGE_PORT } else { "43180" }
@@ -31,12 +33,12 @@ $ok = $false
 for ($i = 0; $i -lt 90; $i++) {
   try {
     $health = Invoke-RestMethod -Uri "$base/api/health" -TimeoutSec 2
-    if ($health.ok -and $health.version -eq "1.1.0") { $ok = $true; break }
+    if ($health.ok -and $health.version -eq $wantVersion) { $ok = $true; break }
   } catch {}
   if ($p.HasExited) { break }
   Start-Sleep -Milliseconds 500
 }
-if (-not $ok) { throw "Packaged Forge.exe did not report v1.1.0 on $base" }
+if (-not $ok) { throw "Packaged Forge.exe did not report v$wantVersion on $base" }
 
 if (-not $health.python.ok) { throw "packaged python finder failed: $($health.python.error)" }
 if (-not $health.monaco.ok) { throw "packaged monaco vendor missing" }
