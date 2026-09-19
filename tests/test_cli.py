@@ -521,4 +521,20 @@ def test_revisions_doc_lists_current_version():
     root = Path(__file__).resolve().parents[1]
     text = (root / "docs" / "REVISIONS.md").read_text(encoding="utf-8")
     assert __version__ in text
-    assert "tool-call" in text.lower() or "tool xml" in text.lower() or "mixed tool" in text.lower()
+    assert "easy" in text.lower()
+
+
+def test_desk_ui_has_easy_advanced_toggle():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    css = (root / "ui" / "styles.css").read_text(encoding="utf-8")
+    assert 'id="easyModeBtn"' in html
+    assert 'id="advancedModeBtn"' in html
+    assert 'id="easySetup"' in html
+    assert 'id="easyAcceptBtn"' in html
+    assert "sendEasy" in js
+    assert "isEasyMode" in js
+    assert "mode-easy" in css
+    assert "Enter to send" in html
+    assert ".thinking-banner" in css

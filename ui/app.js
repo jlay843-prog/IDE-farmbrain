@@ -34,6 +34,8 @@ const state = {
   protectedHint: "",
   termTimer: 0,
   termStarted: false,
+  uiMode: "easy",
+  easyParent: "",
 };
 
 let qcWaiter = null;
@@ -159,6 +161,96 @@ function renderHeaderStatus(status, mesh) {
 function renderAppVersion(version) {
   const el = $("#appVersion");
   if (el && version) el.textContent = `v${version}`;
+}
+
+function isEasyMode() {
+  return state.uiMode === "easy";
+}
+
+function applyUiMode(mode) {
+  const chosen = mode === "advanced" ? "advanced" : "easy";
+  state.uiMode = chosen;
+  document.body.classList.toggle("mode-easy", chosen === "easy");
+  document.body.classList.toggle("mode-advanced", chosen === "advanced");
+  const easyBtn = $("#easyModeBtn");
+  const advancedBtn = $("#advancedModeBtn");
+  if (easyBtn) easyBtn.classList.toggle("active", chosen === "easy");
+  if (advancedBtn) advancedBtn.classList.toggle("active", chosen === "advanced");
+  const promptEl = $("#prompt");
+  if (promptEl) {
+    promptEl.placeholder =
+      chosen === "easy"
+        ? "Describe what you want — Enter to send. Forge creates or changes files; click Accept when ready."
+        : "Ask or Edit — Enter to send, Shift+Enter for newline. Check named files for Edit. Apply hunks on Diff.";
+  }
+  if (chosen === "advanced") hideEasyAccept();
+}
+
+async function setUiMode(mode) {
+  const data = await api("/api/mode", { method: "POST", body: JSON.stringify({ mode }) });
+  applyUiMode((data && data.ui_mode) || mode);
+}
+
+function hideEasyAccept() {
+  const bar = $("#easyAccept");
+  if (bar) bar.hidden = true;
+}
+
+function showEasyAccept(changes) {
+  const bar = $("#easyAccept");
+  const summary = $("#easyAcceptSummary");
+  if (!bar || !isEasyMode()) return;
+  const rows = changes && changes.length ? changes : state.changes || [];
+  if (!rows.length || !state.lastDiff) {
+    hideEasyAccept();
+    return;
+  }
+  const names = rows.map((row) => row.path).filter(Boolean);
+  const label = names.length === 1 ? names[0] : `${names.length} files`;
+  if (summary) {
+    summary.textContent = state.protected
+      ? `Ready: ${label}. Accept opens the farm-brain QC confirm.`
+      : `Ready: ${label}. Click Accept to write these changes.`;
+  }
+  bar.hidden = false;
+}
+
+async function maybeShowEasySetup() {
+  const gate = $("#easySetup");
+  if (!gate || !isEasyMode()) return;
+  if (state.session.workspace) {
+    gate.hidden = true;
+    return;
+  }
+  const parentInput = $("#easyProjectParent");
+  const nameInput = $("#easyProjectName");
+  const parent = state.easyParent || (state.session.easy_projects_parent || "");
+  if (parentInput && !parentInput.value) parentInput.value = parent;
+  if (nameInput) {
+    try {
+      nameInput.focus();
+    } catch {
+      /* ignore */
+    }
+  }
+  gate.hidden = false;
+}
+
+async function createEasyProject() {
+  const name = (($("#easyProjectName") && $("#easyProjectName").value) || "").trim();
+  const parent = (($("#easyProjectParent") && $("#easyProjectParent").value) || "").trim();
+  if (!name) return toast("Enter a project name.");
+  const data = await api("/api/projects/create", {
+    method: "POST",
+    body: JSON.stringify({ name, parent: parent || undefined }),
+  });
+  state.session = data.state || state.session;
+  const gate = $("#easySetup");
+  if (gate) gate.hidden = true;
+  state.cwd = "";
+  state.searchQuery = "";
+  await refreshAll();
+  toast(`Project ready: ${state.session.workspace || name}`);
 }
 
 function transcriptHost() {
@@ -1407,6 +1499,8 @@ function queueVaultSearch(q) {
 
 async function refreshAll() {
   const desk = await api("/api/desk");
+  applyUiMode(desk.ui_mode || (desk.state && desk.state.ui_mode) || state.uiMode || "easy");
+  state.easyParent = (desk.easy_defaults && desk.easy_defaults.parent) || state.easyParent || "";
   const prevWs = state.session.workspace || "";
   const nextWs = (desk.state && desk.state.workspace) || desk.workspace || "";
   const wsChanged = prevWs !== nextWs;
@@ -1451,6 +1545,7 @@ async function refreshAll() {
   renderPicker((models && models.picker) || pickerFromStatus(status));
   renderMesh(mesh);
   await refreshLog();
+  await maybeShowEasySetup();
 }
 
 function renderLog(data) {
@@ -1564,6 +1659,112 @@ async function readSse(res, onEvent) {
   if (buf.trim()) {
     const parsed = parseSseBuffer(buf + "\n\n");
     for (const ev of parsed.events) onEvent(ev);
+  }
+}
+
+async function sendEasy() {
+  if (state.busy) return;
+  if (!state.session.workspace) {
+    await maybeShowEasySetup();
+    return toast("Create a project first.");
+  }
+  const promptEl = $("#prompt");
+  const prompt = ((promptEl && promptEl.value) || "").trim();
+  if (!prompt) return;
+  if (promptEl) promptEl.value = "";
+  hideEasyAccept();
+  addMessage("user", prompt, "easy");
+  const bubble = addMessage("assistant", "", "easy");
+  bubble.classList.add("streaming");
+  const bodyEl = bubble.querySelector(".body");
+  const metaEl = bubble.querySelector(".meta");
+  setThinkingBanner(bubble, "Thinking…", "routing ask vs create");
+  setBusy(true);
+  let text = "";
+  let changes = null;
+  let hunks = null;
+  let intent = "edit";
+  let inspecting = false;
+  try {
+    const res = await fetch("/api/easy/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        files: [],
+        history: boundedHistory(),
+        tier: "code",
+        model: $("#codeModel").value || undefined,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(data.error || res.statusText);
+    }
+    await readSse(res, (ev) => {
+      if (ev.meta) {
+        intent = ev.meta.intent || ev.intent || intent;
+        const meta = `${intent === "edit" ? "create" : "ask"} · ${ev.meta.model || ""}`.trim();
+        if (metaEl && meta) metaEl.textContent = meta;
+        setThinkingBanner(
+          bubble,
+          intent === "edit" ? "Inspecting workspace…" : "Thinking…",
+          intent === "edit" ? "read · list · grep" : "capability answer"
+        );
+      }
+      if (ev.delta) {
+        if (inspecting) {
+          inspecting = false;
+          text = "";
+        }
+        text += ev.delta;
+        if (bodyEl) bodyEl.textContent = text;
+        setThinkingBanner(bubble, "Streaming…", metaEl ? metaEl.textContent : "response in progress");
+        scrollTranscript();
+      }
+      if (ev.tool) {
+        const t = ev.tool;
+        if (t.phase === "round" || t.phase === "call") {
+          inspecting = true;
+          text = "";
+          if (bodyEl) bodyEl.textContent = "";
+        }
+        const line =
+          t.phase === "call"
+            ? `tool ${t.name} ${t.args && (t.args.path || t.args.pattern) ? t.args.path || t.args.pattern : ""}`.trim()
+            : t.phase === "round"
+              ? `inspect round ${t.round || ""} of ${t.max || ""}`.trim()
+              : `${t.name}: ${t.preview || t.error || ""}`;
+        setThinkingBanner(bubble, "Running tool…", line);
+        if (metaEl) metaEl.textContent = line;
+      }
+      if (ev.error) throw new Error(ev.error);
+      if (ev.done && ev.text) text = ev.text;
+      if (ev.done && ev.changes) changes = ev.changes;
+      if (ev.done && ev.hunks) hunks = ev.hunks;
+      if (ev.done && ev.intent) intent = ev.intent;
+      if (ev.done && ev.model && metaEl) metaEl.textContent = `${intent} · ${ev.model}`;
+    });
+    if (bodyEl) bodyEl.textContent = text;
+    if (intent === "edit" && changes && changes.length) {
+      renderDiff(text, changes, hunks);
+      showEasyAccept(changes);
+      setTab("session");
+    } else {
+      hideEasyAccept();
+    }
+    recordConversationTurn(prompt, text);
+    toast(metaEl ? metaEl.textContent : "done");
+    await refreshLog();
+  } catch (err) {
+    if (bodyEl && !bodyEl.textContent) bodyEl.textContent = String(err.message || err);
+    else addMessage("assistant", String(err.message || err), "error");
+    if (metaEl) metaEl.textContent = "error";
+    toast(String(err.message || err));
+  } finally {
+    bubble.classList.remove("streaming");
+    clearThinkingBanner(bubble);
+    setBusy(false);
   }
 }
 
@@ -1697,6 +1898,7 @@ function currentGoKind() {
 
 async function sendGo() {
   if (state.busy) return;
+  if (isEasyMode()) return sendEasy();
   const { action, kind } = currentGoKind();
   if (action === "compare") return sendCompare(kind);
   return send(kind);
@@ -1779,6 +1981,11 @@ async function applyHunks(ids, single) {
       body: JSON.stringify(payload),
     });
     (ids || pendingHunkIds()).forEach((id) => markHunk(id, "applied"));
+    hideEasyAccept();
+    state.lastDiff = "";
+    state.changes = [];
+    state.hunks = [];
+    state.hunkStatus = {};
     toast("Applied " + (out.changed || []).join(", ") + (single && ids ? ` (hunk ${ids.join(",")})` : ""));
     await refreshAll();
     await refreshLog();
@@ -1821,6 +2028,62 @@ async function runRecipe(id) {
 function bind() {
   bindQc();
   bindDiscard();
+  const easyBtn = $("#easyModeBtn");
+  const advancedBtn = $("#advancedModeBtn");
+  if (easyBtn) {
+    easyBtn.addEventListener("click", async () => {
+      try {
+        await setUiMode("easy");
+        await maybeShowEasySetup();
+        toast("Easy mode — one chat, Accept to apply changes.");
+      } catch (err) {
+        toast(String(err.message || err));
+      }
+    });
+  }
+  if (advancedBtn) {
+    advancedBtn.addEventListener("click", async () => {
+      try {
+        await setUiMode("advanced");
+        const gate = $("#easySetup");
+        if (gate) gate.hidden = true;
+        hideEasyAccept();
+        toast("Advanced mode — full desk.");
+      } catch (err) {
+        toast(String(err.message || err));
+      }
+    });
+  }
+  const easySetupCreate = $("#easySetupCreate");
+  if (easySetupCreate) {
+    easySetupCreate.addEventListener("click", () => {
+      createEasyProject().catch((err) => toast(String(err.message || err)));
+    });
+  }
+  const easySetupCancel = $("#easySetupCancel");
+  if (easySetupCancel) {
+    easySetupCancel.addEventListener("click", () => {
+      const gate = $("#easySetup");
+      if (gate) gate.hidden = true;
+    });
+  }
+  const easyAcceptBtn = $("#easyAcceptBtn");
+  if (easyAcceptBtn) {
+    easyAcceptBtn.addEventListener("click", () => {
+      applyDiff().catch((err) => toast(String(err.message || err)));
+    });
+  }
+  const easyRejectBtn = $("#easyRejectBtn");
+  if (easyRejectBtn) {
+    easyRejectBtn.addEventListener("click", () => {
+      hideEasyAccept();
+      state.lastDiff = "";
+      state.changes = [];
+      state.hunks = [];
+      state.hunkStatus = {};
+      toast("Changes rejected.");
+    });
+  }
   $("#codeModel").addEventListener("change", async () => {
     const model = $("#codeModel").value;
     if (!model) return;

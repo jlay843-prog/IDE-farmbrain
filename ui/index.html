@@ -13,7 +13,11 @@
         <div class="brand">
           <img src="/forge-icon.svg" alt="" />
           <span>FORGE</span>
-          <span id="appVersion" class="app-version" aria-label="Forge version">v1.1.0</span>
+          <span id="appVersion" class="app-version" aria-label="Forge version">v1.2.0</span>
+        </div>
+        <div class="mode-toggle" role="group" aria-label="Desk mode">
+          <button type="button" id="easyModeBtn" class="btn mode-btn" data-mode="easy">Easy</button>
+          <button type="button" id="advancedModeBtn" class="btn mode-btn" data-mode="advanced">Advanced</button>
         </div>
         <div id="headerStatus" class="header-status">
           <span class="pulse-dot" aria-hidden="true"></span>
@@ -137,6 +141,13 @@
         </div>
         <div class="composer-chat">
           <div id="composerTranscript" class="composer-transcript scroll" aria-live="polite" aria-label="Conversation"></div>
+          <div id="easyAccept" class="easy-accept" hidden>
+            <p id="easyAcceptSummary" class="status-line">Changes are ready to apply.</p>
+            <div class="easy-accept-actions">
+              <button id="easyAcceptBtn" class="btn primary" type="button">Accept</button>
+              <button id="easyRejectBtn" class="btn" type="button">Reject</button>
+            </div>
+          </div>
           <div class="composer-input-row">
             <div class="composer-main">
               <div id="statusLine" class="status-line">Starting Forge…</div>
@@ -153,6 +164,24 @@
         </div>
         <div id="comparePicks" hidden aria-hidden="true"></div>
       </footer>
+    </div>
+    <div id="easySetup" class="qc-gate" hidden>
+      <div class="qc-card" role="dialog" aria-modal="true" aria-labelledby="easySetupTitle">
+        <h3 id="easySetupTitle">Start a project</h3>
+        <p class="status-line">Forge creates a local folder and runs <code>git init</code>. No GitHub remote is added.</p>
+        <label class="easy-field">
+          <span>Project name</span>
+          <input id="easyProjectName" type="text" autocomplete="off" spellcheck="false" placeholder="my-app" aria-label="Project name" />
+        </label>
+        <label class="easy-field">
+          <span>Parent folder</span>
+          <input id="easyProjectParent" type="text" autocomplete="off" spellcheck="false" aria-label="Parent folder for new projects" />
+        </label>
+        <div class="qc-actions">
+          <button id="easySetupCancel" class="btn" type="button">Cancel</button>
+          <button id="easySetupCreate" class="btn primary" type="button">Create project</button>
+        </div>
+      </div>
     </div>
     <div id="discardGate" class="qc-gate" hidden>
       <div class="qc-card" role="dialog" aria-modal="true" aria-labelledby="discardTitle">

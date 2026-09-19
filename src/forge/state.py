@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_TIER = "code"
+DEFAULT_UI_MODE = "easy"
+UI_MODES = frozenset({"easy", "advanced"})
 PROTECTED_HINT = "farm-brain patches still go through the existing QC gate — Forge will not auto-apply."
 EPHEMERAL_PROJECT_NAMES = frozenset({"forge-w7-farm-brain"})
 
@@ -28,6 +30,10 @@ def state_path() -> Path:
     return data_dir() / "state.json"
 
 
+def default_easy_projects_parent() -> Path:
+    return Path.home() / "ForgeProjects"
+
+
 def default_state() -> dict[str, Any]:
     return {
         "workspace": "",
@@ -35,9 +41,20 @@ def default_state() -> dict[str, Any]:
         "last_model": "qwen3-coder:30b",
         "code_model": "qwen3-coder:30b",
         "chat_model": "qwen3.8:27b",
+        "ui_mode": DEFAULT_UI_MODE,
+        "easy_projects_parent": str(default_easy_projects_parent()),
         "projects": [],
         "handoff": {"aether": {"url": "", "title": "", "at": "", "source": ""}, "lumen": {"url": "", "title": "", "at": "", "source": ""}},
     }
+
+
+def resolve_ui_mode(state: dict[str, Any]) -> str:
+    raw = str(state.get("ui_mode") or "").strip().lower()
+    if raw in UI_MODES:
+        return raw
+    if not str(state.get("workspace") or "").strip():
+        return DEFAULT_UI_MODE
+    return "advanced"
 
 
 def load_state() -> dict[str, Any]:
@@ -52,6 +69,9 @@ def load_state() -> dict[str, Any]:
     merged.update(data if isinstance(data, dict) else {})
     if not isinstance(merged.get("projects"), list):
         merged["projects"] = []
+    merged["ui_mode"] = resolve_ui_mode(merged)
+    if not str(merged.get("easy_projects_parent") or "").strip():
+        merged["easy_projects_parent"] = str(default_easy_projects_parent())
     cleaned, changed = prune_projects(merged)
     if changed:
         save_state(cleaned)
@@ -63,6 +83,15 @@ def save_state(state: dict[str, Any]) -> dict[str, Any]:
     path = state_path()
     path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     return state
+
+
+def set_ui_mode(mode: str) -> dict[str, Any]:
+    chosen = str(mode or "").strip().lower()
+    if chosen not in UI_MODES:
+        raise ValueError("ui_mode must be easy or advanced")
+    state = load_state()
+    state["ui_mode"] = chosen
+    return save_state(state)
 
 
 def set_workspace(path: str | Path) -> dict[str, Any]:

@@ -28,13 +28,18 @@ from forge.vault import search_vault, vault_info
 from forge.log import log_path, log_turn, read_turns
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
+from forge.easy import classify_easy_prompt
+from forge.project import create_project, sanitize_project_name
 from forge.session import SessionError, run_ask, run_edit
 from forge.state import (
     PROTECTED_HINT,
     assign_project,
+    default_easy_projects_parent as state_default_parent,
     is_protected_workspace,
     load_state,
+    resolve_ui_mode,
     set_tier,
+    set_ui_mode,
     set_workspace,
     workspace_path,
 )
@@ -52,7 +57,7 @@ MIME = {
     ".woff": "font/woff",
     ".woff2": "font/woff2",
 }
-STREAM_PATHS = {"/api/ask/stream", "/api/edit/stream"}
+STREAM_PATHS = {"/api/ask/stream", "/api/edit/stream", "/api/easy/stream"}
 
 
 def _json_bytes(data, status: int = 200) -> tuple[int, bytes, str]:
@@ -90,10 +95,15 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         root = workspace_path()
         tree = tree_listing(root, "") if root else {"cwd": "", "parent": None, "crumbs": [], "entries": []}
         protected = bool(root and is_protected_workspace(root))
+        state = load_state()
         return _json_bytes(
             {
                 "ok": True,
-                "state": load_state(),
+                "state": state,
+                "ui_mode": resolve_ui_mode(state),
+                "easy_defaults": {
+                    "parent": state.get("easy_projects_parent") or str(state_default_parent()),
+                },
                 "files": tree["entries"],
                 "tree": tree,
                 "recipes": RECIPES,
@@ -130,6 +140,24 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes(set_tier(tier, body.get("model")))
     if path == "/api/open" and method == "POST":
         return _json_bytes(set_workspace(body["path"]))
+    if path == "/api/mode" and method == "POST":
+        return _json_bytes(set_ui_mode(body.get("mode") or body.get("ui_mode") or ""))
+    if path == "/api/easy/defaults" and method == "GET":
+        state = load_state()
+        return _json_bytes(
+            {
+                "ok": True,
+                "parent": state.get("easy_projects_parent") or str(state_default_parent()),
+                "ui_mode": resolve_ui_mode(state),
+            }
+        )
+    if path == "/api/projects/create" and method == "POST":
+        name = sanitize_project_name(body.get("name") or "")
+        parent = body.get("parent") or None
+        return _json_bytes({"ok": True, "state": create_project(name, parent)})
+    if path == "/api/easy/classify" and method == "POST":
+        prompt = body.get("prompt") or ""
+        return _json_bytes({"ok": True, "intent": classify_easy_prompt(prompt), "prompt": prompt})
     if path == "/api/ask" and method == "POST":
         result = run_ask(
             body["prompt"],
@@ -304,7 +332,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _stream_turn(self, path: str, body: dict) -> None:
-        kind = "edit" if path.endswith("/edit/stream") else "ask"
+        if path.endswith("/easy/stream"):
+            kind = "easy"
+        elif path.endswith("/edit/stream"):
+            kind = "edit"
+        else:
+            kind = "ask"
         try:
             self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except OSError:
@@ -319,8 +352,15 @@ class Handler(BaseHTTPRequestHandler):
         files = body.get("files") or []
         history = body.get("history")
 
+        easy_intent = classify_easy_prompt(prompt) if kind == "easy" else None
+        routed = easy_intent or kind
+
         def on_begin(meta: dict[str, Any]) -> None:
-            self._write_sse({"meta": meta})
+            payload = dict(meta)
+            if easy_intent:
+                payload["intent"] = easy_intent
+                payload["easy"] = True
+            self._write_sse({"meta": payload})
 
         def on_delta(delta: str) -> None:
             self._write_sse({"delta": delta})
@@ -331,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not prompt:
                 raise SessionError("empty prompt")
-            if kind == "edit":
+            if routed == "edit":
                 result = run_edit(
                     prompt,
                     files,
@@ -353,7 +393,9 @@ class Handler(BaseHTTPRequestHandler):
                     on_begin=on_begin,
                     on_delta=on_delta,
                 )
-            log_turn(kind, result, prompt)
+            if easy_intent:
+                result = {**result, "intent": easy_intent, "easy": True}
+            log_turn(routed if kind == "easy" else kind, result, prompt)
             self._write_sse({"done": True, **result})
         except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:
             self._write_sse({"done": True, "ok": False, "error": str(exc)})

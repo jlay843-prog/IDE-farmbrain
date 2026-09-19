@@ -22,7 +22,7 @@ def test_health_reports_v1():
     assert data["ok"] is True
     assert data["name"] == "forge"
     assert data["version"] == __version__
-    assert data["version"] == "1.1.1"
+    assert data["version"] == "1.2.0"
     assert "json" in ctype
     assert data["python"]["ok"] is True
     assert data["python"]["exe"]

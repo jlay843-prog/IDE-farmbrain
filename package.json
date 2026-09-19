@@ -1,6 +1,6 @@
 {
   "name": "forge-desk",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": true,
   "description": "Local Qwen coding desk. Models stay on the farm LAN.",
   "author": "Jeff Lay",
