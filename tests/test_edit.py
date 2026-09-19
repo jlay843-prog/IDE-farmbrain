@@ -56,6 +56,7 @@ def test_edit_system_new_files_and_no_shell():
     assert "/dev/null" in EDIT_SYSTEM
     assert "new files are allowed" in lower
     assert "unified diff" in lower
+    assert "never tell jeff to click edit again" in lower
 
 
 def test_extract_diff_from_fence():

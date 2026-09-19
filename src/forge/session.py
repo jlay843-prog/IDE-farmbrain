@@ -111,14 +111,18 @@ def _generate(
     _emit_begin(sess, on_begin)
     messages = build_messages(system, prompt, named)
     traces: list[dict[str, Any]] = []
+    tool_rounds = 0
     last: dict[str, Any] = {"text": "", "model": sess["model"], "done": True, "raw": {}, "tools": []}
     rounds = MAX_ROUNDS if use_tools and workspace is not None else 0
     for step in range(rounds + 1):
         offer = OLLAMA_TOOLS if use_tools and step < rounds else None
+        if on_tool and offer:
+            on_tool({"phase": "round", "round": step + 1, "max": rounds + 1})
         last = _one_turn(sess, messages, tools=offer, on_delta=on_delta)
-        calls = tool_calls_from_reply(last.get("text") or "", last.get("raw")) if offer else []
-        if offer and calls and not change_list(last.get("text") or ""):
-            messages.append({"role": "assistant", "content": last.get("text") or ""})
+        reply_text = last.get("text") or ""
+        calls = tool_calls_from_reply(reply_text, last.get("raw")) if offer else []
+        if offer and calls and not change_list(reply_text):
+            messages.append({"role": "assistant", "content": reply_text})
             blobs: list[str] = []
             for call in calls:
                 args = call.get("args") if isinstance(call.get("args"), dict) else {}
@@ -135,6 +139,7 @@ def _generate(
                 if on_tool:
                     on_tool({"phase": "result", **trace})
                 blobs.append(format_tool_result(result))
+            tool_rounds += 1
             messages.append(
                 {
                     "role": "user",
@@ -146,9 +151,24 @@ def _generate(
                 }
             )
             continue
+        if offer and not change_list(reply_text) and step < rounds:
+            messages.append({"role": "assistant", "content": reply_text})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Do not ask Jeff to click Edit again or say you will check files later. "
+                        "This Edit session already includes inspection — call read, list, or grep now, "
+                        "or return the unified diff in this reply."
+                    ),
+                }
+            )
+            continue
         last["tools"] = traces
+        last["tool_rounds"] = tool_rounds
         return last
     last["tools"] = traces
+    last["tool_rounds"] = tool_rounds
     return last
 
 
@@ -225,6 +245,7 @@ def run_edit(
         "changes": change_list(reply["text"]),
         "hunks": hunk_list(reply["text"]),
         "tools": reply.get("tools") or [],
+        "tool_rounds": int(reply.get("tool_rounds") or 0),
         "applied": False,
         "changed": [],
         "protected": is_protected_workspace(root),

@@ -104,5 +104,107 @@ def test_edit_tool_loop_then_diff(tmp_path: Path, monkeypatch):
     out = run_edit("rename greeting", ["src/hello.py"], workspace=root)
     assert [t["name"] for t in out["tools"]] == ["read"]
     assert out["tools"][0]["ok"] is True
+    assert out["tool_rounds"] == 1
     assert [row["path"] for row in out["changes"]] == ["src/hello.py"]
     assert "return 'hello'" in out["text"]
+
+
+def test_edit_multi_tool_rounds_then_diff(tmp_path: Path, monkeypatch):
+    root = _proj(tmp_path)
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    set_workspace(root)
+    seen = {"n": 0}
+
+    def fake_chat(base, model, messages, tools=None, **kwargs):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return {
+                "text": '<tool name="list">{"path": "src"}</tool>',
+                "model": model,
+                "done": True,
+                "raw": {},
+                "tool_calls": [],
+            }
+        if seen["n"] == 2:
+            return {
+                "text": '<tool name="grep">{"pattern": "return", "path": "src", "glob": "*.py"}</tool>',
+                "model": model,
+                "done": True,
+                "raw": {},
+                "tool_calls": [],
+            }
+        return {
+            "text": "--- a/src/hello.py\n+++ b/src/hello.py\n@@ -1,2 +1,2 @@\n def hello():\n-    return 'hi'\n+    return 'hello'\n",
+            "model": model,
+            "done": True,
+            "raw": {},
+            "tool_calls": [],
+        }
+
+    monkeypatch.setattr(
+        "forge.session.active_session",
+        lambda *a, **k: {
+            "tier": "code",
+            "model": "qwen3-coder:30b",
+            "base": "http://127.0.0.1:9",
+            "blocked": False,
+            "backend": {"id": "amd", "label": "EVO AMD", "gpu": "GTT", "ok": True},
+        },
+    )
+    monkeypatch.setattr("forge.session.chat", fake_chat)
+    out = run_edit("rename greeting", [], workspace=root)
+    assert [t["name"] for t in out["tools"]] == ["list", "grep"]
+    assert out["tool_rounds"] == 2
+    assert seen["n"] == 3
+    assert [row["path"] for row in out["changes"]] == ["src/hello.py"]
+
+
+def test_edit_nudges_when_model_stalls_without_tools(tmp_path: Path, monkeypatch):
+    root = _proj(tmp_path)
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    set_workspace(root)
+    seen = {"n": 0}
+
+    def fake_chat(base, model, messages, tools=None, **kwargs):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return {
+                "text": "I'll help edit the file. Let me check hello.py first.",
+                "model": model,
+                "done": True,
+                "raw": {},
+                "tool_calls": [],
+            }
+        if seen["n"] == 2:
+            assert "Do not ask Jeff to click Edit again" in messages[-1]["content"]
+            return {
+                "text": '<tool name="read">{"path": "src/hello.py"}</tool>',
+                "model": model,
+                "done": True,
+                "raw": {},
+                "tool_calls": [],
+            }
+        return {
+            "text": "--- a/src/hello.py\n+++ b/src/hello.py\n@@ -1,2 +1,2 @@\n def hello():\n-    return 'hi'\n+    return 'hello'\n",
+            "model": model,
+            "done": True,
+            "raw": {},
+            "tool_calls": [],
+        }
+
+    monkeypatch.setattr(
+        "forge.session.active_session",
+        lambda *a, **k: {
+            "tier": "code",
+            "model": "qwen3-coder:30b",
+            "base": "http://127.0.0.1:9",
+            "blocked": False,
+            "backend": {"id": "amd", "label": "EVO AMD", "gpu": "GTT", "ok": True},
+        },
+    )
+    monkeypatch.setattr("forge.session.chat", fake_chat)
+    out = run_edit("rename greeting", [], workspace=root)
+    assert seen["n"] == 3
+    assert out["tool_rounds"] == 1
+    assert [t["name"] for t in out["tools"]] == ["read"]
+    assert [row["path"] for row in out["changes"]] == ["src/hello.py"]

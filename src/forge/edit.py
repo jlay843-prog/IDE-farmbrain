@@ -273,6 +273,7 @@ You may call tools: read, list, grep. There is no shell, no bash, no cmd, no pow
 - read: one named file under the workspace.
 - list: one directory; names and paths only.
 - grep: a Python regex over file contents (optional path/glob). Never pipes or subprocess.
+When you need more context, call read/list/grep in this same Edit turn. Never tell Jeff to click Edit again or say you will check files later.
 After you have enough context, return ONLY a unified diff (--- a/ +++ b/ @@ hunks).
 One reply may change several files: emit a --- / +++ pair per file.
 New files are allowed: use --- /dev/null and +++ b/relative/path with + lines in the hunk.

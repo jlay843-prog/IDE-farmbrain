@@ -990,8 +990,8 @@ function renderDiff(text, changes, hunks) {
   const hint = document.createElement("p");
   hint.className = "status-line";
   hint.textContent = state.protected
-    ? "farm-brain QC gate on. Apply hunk / Apply remaining opens the desk confirm — Forge will not auto-apply."
-    : "Apply or reject each hunk. Apply in the header writes remaining hunks.";
+    ? "farm-brain QC gate on. Apply hunks; don't click Edit again — Apply hunk / Apply remaining opens the desk confirm."
+    : "Apply hunks; don't click Edit again. Apply or reject each hunk, or Apply remaining in the header.";
   body.appendChild(hint);
   let currentPath = null;
   let section = null;
@@ -1465,17 +1465,21 @@ async function readSse(res, onEvent) {
 async function send(kind) {
   const prompt = $("#prompt").value.trim();
   if (!prompt) return;
+  if (kind === "edit" && pendingHunkIds().length) {
+    toast("Apply hunks; don't click Edit again.");
+  }
   const files = selectedFiles();
   addMessage("user", prompt, files.length ? files.join(", ") : "no file context");
-  const bubble = addMessage("assistant", "", "streaming…");
+  const bubble = addMessage("assistant", "", kind === "edit" ? "working…" : "streaming…");
   bubble.classList.add("streaming");
   const bodyEl = bubble.querySelector(".body");
   const metaEl = bubble.querySelector(".meta");
   setBusy(true);
-  toast(kind === "edit" ? "Streaming coder diff…" : "Streaming local Qwen…");
+  toast(kind === "edit" ? "Edit running — inspect then diff…" : "Streaming local Qwen…");
     let text = "";
     let changes = null;
     let hunks = null;
+    let inspecting = false;
     try {
     const res = await fetch(kind === "edit" ? "/api/edit/stream" : "/api/ask/stream", {
       method: "POST",
@@ -1498,24 +1502,36 @@ async function send(kind) {
         toast(meta || "streaming…");
       }
       if (ev.delta) {
+        if (inspecting) {
+          inspecting = false;
+          text = "";
+        }
         text += ev.delta;
         if (bodyEl) bodyEl.textContent = text;
         $("#session").scrollTop = $("#session").scrollHeight;
       }
       if (ev.tool) {
         const t = ev.tool;
+        if (t.phase === "round" || t.phase === "call") {
+          inspecting = true;
+          text = "";
+          if (bodyEl) bodyEl.textContent = "Inspecting workspace…";
+        }
         const line =
           t.phase === "call"
             ? `tool ${t.name} ${t.args && (t.args.path || t.args.pattern) ? t.args.path || t.args.pattern : ""}`.trim()
-            : `${t.name}: ${t.preview || t.error || ""}`;
+            : t.phase === "round"
+              ? `inspect round ${t.round || ""}`
+              : `${t.name}: ${t.preview || t.error || ""}`;
         if (metaEl) {
           const prev = metaEl.textContent || "";
-          metaEl.textContent = prev && prev !== "streaming…" ? `${prev} · ${line}` : line;
+          const base = prev && prev !== "streaming…" && prev !== "working…" ? prev : "working…";
+          metaEl.textContent = `${base} · ${line}`;
         }
         toast(line);
       }
       if (ev.error) throw new Error(ev.error);
-      if (ev.done && ev.text && !text) text = ev.text;
+      if (ev.done && ev.text) text = ev.text;
       if (ev.done && ev.changes) changes = ev.changes;
       if (ev.done && ev.hunks) hunks = ev.hunks;
       if (ev.done && ev.protected) {
