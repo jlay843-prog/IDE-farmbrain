@@ -127,25 +127,29 @@ function bindQc() {
 
 function renderChips(status, mesh) {
   const box = $("#chips");
-  box.innerHTML = "";
+  if (box) box.innerHTML = "";
+  renderHeaderStatus(status, mesh);
+}
+
+function renderHeaderStatus(status, mesh) {
+  const models = $("#headerModels");
+  const dot = document.querySelector(".header-status .pulse-dot");
+  if (!models) return;
+  const code = state.session.code_model || "—";
+  const ask = state.session.chat_model || "—";
   const farm = status.farm?.ok;
-  addChip(box, farm ? "Farm Brain up" : "Farm Brain down", farm ? "ok" : "down");
-  addChip(box, status.vast_active ? "Vast active — no 5090" : "5090 free", status.vast_active ? "warn" : "ok");
-  const bc = (mesh && mesh.farm_hosts) || [];
-  if (bc.length) {
-    const live = bc.filter((n) => n.ok).length;
-    addChip(box, `BC-250 ${live}/${bc.length}`, live ? "ok" : "down");
-  }
-  if (state.protected) {
-    addChip(box, "farm-brain QC", "warn");
-  }
+  const vast = status.vast_active;
+  const bits = [`Code ${code}`, `Ask ${ask}`];
+  if (!farm) bits.push("farm down");
+  if (vast) bits.push("5090 blocked");
+  if (state.protected) bits.push("QC");
   const ray = mesh && mesh.ray;
-  if (ray) {
-    addChip(box, ray.head_ok ? "Ray head up" : "Ray head down", ray.head_ok ? "ok" : "down");
-  }
-  for (const be of Object.values(status.backends || {})) {
-    const loaded = (be.running || []).map((r) => r.name).join(", ") || "idle";
-    addChip(box, `${be.label}: ${be.ok ? loaded : "down"}`, be.ok ? "ok" : "down");
+  if (ray && !ray.head_ok) bits.push("ray down");
+  models.textContent = bits.join(" · ");
+  if (dot) {
+    dot.classList.remove("warn", "down");
+    if (!farm) dot.classList.add("down");
+    else if (vast) dot.classList.add("warn");
   }
 }
 
@@ -217,9 +221,7 @@ function renderPicker(picker) {
   renderComparePicks(picker);
 }
 
-function renderComparePicks(picker) {
-  const box = $("#comparePicks");
-  if (!box) return;
+function compareModelRows(picker) {
   const groups = (picker && picker.groups) || {};
   const rows = []
     .concat(groups.code || [], groups.chat || [], (picker && picker.vast_active ? [] : groups.burst || []))
@@ -232,52 +234,66 @@ function renderComparePicks(picker) {
     seen.add(key);
     unique.push(row);
   }
-  if (!state.compareModels.length) {
-    const seed = [state.session.chat_model, state.session.code_model].filter(Boolean);
-    for (const name of seed) {
-      const hit = unique.find((r) => r.name === name);
-      if (hit && !state.compareModels.includes(`${hit.tier}:${hit.name}`)) {
-        state.compareModels.push(`${hit.tier}:${hit.name}`);
-      }
+  return unique;
+}
+
+function seedCompareModels(unique) {
+  if (state.compareModels.length) return;
+  const seed = [state.session.chat_model, state.session.code_model].filter(Boolean);
+  for (const name of seed) {
+    const hit = unique.find((r) => r.name === name);
+    if (hit && !state.compareModels.includes(`${hit.tier}:${hit.name}`)) {
+      state.compareModels.push(`${hit.tier}:${hit.name}`);
     }
-    if (state.compareModels.length < 2) {
-      for (const row of unique) {
-        const key = `${row.tier}:${row.name}`;
-        if (!state.compareModels.includes(key)) state.compareModels.push(key);
-        if (state.compareModels.length >= 2) break;
-      }
-    }
-    state.compareModels = state.compareModels.slice(0, 3);
   }
-  box.innerHTML = "";
-  const note = document.createElement("span");
-  note.className = "status-line";
-  note.textContent = "Compare (max 3):";
-  box.appendChild(note);
+  if (state.compareModels.length < 2) {
+    for (const row of unique) {
+      const key = `${row.tier}:${row.name}`;
+      if (!state.compareModels.includes(key)) state.compareModels.push(key);
+      if (state.compareModels.length >= 2) break;
+    }
+  }
+  state.compareModels = state.compareModels.slice(0, 3);
+}
+
+function renderComparePicks(picker) {
+  const sel = $("#compareSelect");
+  if (!sel) return;
+  const unique = compareModelRows(picker);
+  seedCompareModels(unique);
+  if (document.activeElement === sel) return;
+  sel.innerHTML = "";
   for (const row of unique) {
     const key = `${row.tier}:${row.name}`;
-    const label = document.createElement("label");
-    label.className = "compare-pick";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.value = key;
-    cb.checked = state.compareModels.includes(key);
-    cb.addEventListener("change", () => {
-      if (cb.checked) {
-        if (state.compareModels.length >= 3) {
-          cb.checked = false;
-          toast("Compare allows at most 3 models.");
-          return;
-        }
-        state.compareModels.push(key);
-      } else {
-        state.compareModels = state.compareModels.filter((k) => k !== key);
-      }
-    });
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(` ${row.name}`));
-    box.appendChild(label);
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = row.name;
+    opt.selected = state.compareModels.includes(key);
+    sel.appendChild(opt);
   }
+  syncCompareModeVisibility();
+}
+
+function syncCompareFromSelect() {
+  const sel = $("#compareSelect");
+  if (!sel) return;
+  const picked = [...sel.selectedOptions].map((o) => o.value);
+  if (picked.length > 3) {
+    toast("Compare allows at most 3 models.");
+    state.compareModels = picked.slice(0, 3);
+    for (const opt of sel.options) {
+      opt.selected = state.compareModels.includes(opt.value);
+    }
+    return;
+  }
+  state.compareModels = picked;
+}
+
+function syncCompareModeVisibility() {
+  const mode = ($("#goMode") && $("#goMode").value) || "edit";
+  const compare = mode.startsWith("compare");
+  const label = $("#comparePickLabel");
+  if (label) label.classList.toggle("hidden", !compare);
 }
 
 function fillSelect(sel, rows, current, emptyText) {
@@ -645,7 +661,6 @@ async function openFile(rel, opts = {}) {
     if (!discard) return;
   }
   const data = await api(`/api/file?path=${encodeURIComponent(rel)}`);
-  setTab("file");
   ensureEditor();
   state.editorPath = rel;
   state.editorSavedText = data.text;
@@ -709,19 +724,35 @@ function ensureEditor() {
 
 function setTab(name) {
   state.tab = name;
-  $("#session").style.display = name === "session" ? "block" : "none";
-  $("#log").style.display = name === "log" ? "block" : "none";
-  $("#diff").style.display = name === "diff" ? "block" : "none";
-  const editorPane = $("#editorPane");
-  if (editorPane) editorPane.style.display = name === "file" ? "flex" : "none";
-  const term = $("#term");
-  if (term) term.style.display = name === "term" ? "flex" : "none";
+  const panels = { session: "#session", log: "#log", diff: "#diff", term: "#term", dashboard: "#dashboard" };
+  for (const [key, sel] of Object.entries(panels)) {
+    const el = $(sel);
+    if (!el) continue;
+    if (key === "term") el.style.display = name === key ? "flex" : "none";
+    else el.style.display = name === key ? "block" : "none";
+  }
   document.querySelectorAll(".center-tabs .btn").forEach((b) => {
     if (!b.dataset.tab) return;
     b.classList.toggle("primary", b.dataset.tab === name);
   });
   if (name === "log") refreshLog().catch((err) => toast(String(err.message || err)));
   if (name === "term") ensureTerm().catch((err) => toast(String(err.message || err)));
+  if (name === "dashboard") {
+    api("/api/mesh")
+      .then((mesh) => renderMesh(mesh))
+      .catch((err) => toast(String(err.message || err)));
+  }
+}
+
+function setSideTab(name) {
+  const panels = { files: "#sideFiles", git: "#sideGit", vault: "#sideVault", links: "#sideLinks" };
+  for (const [key, sel] of Object.entries(panels)) {
+    const el = $(sel);
+    if (el) el.hidden = key !== name;
+  }
+  document.querySelectorAll(".side-tabs .btn[data-side]").forEach((b) => {
+    b.classList.toggle("primary", b.dataset.side === name);
+  });
 }
 
 function renderTerm(data) {
@@ -1410,7 +1441,7 @@ function renderFilePicks() {
   if (!el) return;
   const files = selectedFiles();
   if (!files.length) {
-    el.textContent = "No files named yet. Check files to send them with Ask/Edit.";
+    el.textContent = "No files named yet. Check files to send with Go (use Edit mode).";
     return;
   }
   el.textContent = files.length === 1 ? `Named: ${files[0]}` : `Named (${files.length}): ${files.join(", ")}`;
@@ -1559,13 +1590,27 @@ async function send(kind) {
 
 function setBusy(busy) {
   state.busy = !!busy;
-  ["askBtn", "editBtn", "compareAskBtn", "compareEditBtn"].forEach((id) => {
+  ["goBtn", "askBtn", "editBtn", "compareAskBtn", "compareEditBtn"].forEach((id) => {
     const el = $("#" + id);
     if (el) el.disabled = busy;
   });
 }
 
+function currentGoKind() {
+  const mode = ($("#goMode") && $("#goMode").value) || "edit";
+  if (mode === "compare-ask") return { action: "compare", kind: "ask" };
+  if (mode === "compare-edit") return { action: "compare", kind: "edit" };
+  return { action: "send", kind: mode };
+}
+
+async function sendGo() {
+  const { action, kind } = currentGoKind();
+  if (action === "compare") return sendCompare(kind);
+  return send(kind);
+}
+
 function selectedCompareModels() {
+  syncCompareFromSelect();
   return (state.compareModels || []).slice(0, 3).map((key) => {
     const [tier, ...rest] = key.split(":");
     return { tier, model: rest.join(":") };
@@ -1650,7 +1695,7 @@ async function applyDiff() {
 
 async function runRecipe(id) {
   const extra = $("#prompt").value.trim();
-  $("#askBtn").disabled = true;
+  setBusy(true);
   try {
     const data = await api(`/api/recipes/${id}/run`, {
       method: "POST",
@@ -1666,7 +1711,7 @@ async function runRecipe(id) {
   } catch (err) {
     toast(String(err.message || err));
   } finally {
-    $("#askBtn").disabled = false;
+    setBusy(false);
   }
 }
 
@@ -1693,10 +1738,21 @@ function bind() {
     }
     await refreshAll();
   });
+  const goBtn = $("#goBtn");
+  if (goBtn) goBtn.addEventListener("click", () => sendGo());
+  const goMode = $("#goMode");
+  if (goMode) goMode.addEventListener("change", syncCompareModeVisibility);
+  const compareSelect = $("#compareSelect");
+  if (compareSelect) compareSelect.addEventListener("change", syncCompareFromSelect);
   $("#askBtn").addEventListener("click", () => send("ask"));
   $("#editBtn").addEventListener("click", () => send("edit"));
   $("#compareAskBtn").addEventListener("click", () => sendCompare("ask"));
   $("#compareEditBtn").addEventListener("click", () => sendCompare("edit"));
+  document.querySelectorAll(".side-tabs .btn[data-side]").forEach((btn) => {
+    btn.addEventListener("click", () => setSideTab(btn.dataset.side));
+  });
+  setSideTab("files");
+  syncCompareModeVisibility();
   $("#applyBtn").addEventListener("click", applyDiff);
   $("#rejectBtn").addEventListener("click", () => {
     state.lastDiff = "";
@@ -1793,7 +1849,7 @@ function bind() {
     });
   }
   $("#prompt").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send("ask");
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendGo();
   });
   const editorSave = $("#editorSave");
   if (editorSave) {
@@ -1802,7 +1858,7 @@ function bind() {
     });
   }
   document.addEventListener("keydown", (e) => {
-    if (state.tab !== "file" || !state.editorPath) return;
+    if (!state.editorPath) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       saveOpenFile().catch((err) => toast(String(err.message || err)));

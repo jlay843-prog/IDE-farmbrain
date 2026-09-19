@@ -9,12 +9,16 @@
   </head>
   <body>
     <div class="app">
-      <header class="top">
+      <header class="top riveted">
         <div class="brand">
           <img src="/forge-icon.svg" alt="" />
           <span>FORGE</span>
         </div>
-        <div class="tiers">
+        <div id="headerStatus" class="header-status">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span id="headerModels">Starting…</span>
+        </div>
+        <div class="header-options">
           <label class="picker">
             <span>Code</span>
             <select id="codeModel" aria-label="Code model for Edit"></select>
@@ -25,49 +29,65 @@
           </label>
           <button class="tier" data-tier="burst" id="burstBtn" type="button">5090 burst</button>
         </div>
-        <div id="chips" class="chips"></div>
+        <div id="chips" class="chips" hidden aria-hidden="true"></div>
       </header>
 
       <main class="work">
-        <section class="pane">
-          <h2>Project</h2>
-          <div class="scroll">
-            <button id="openBtn" class="btn primary">Open workspace</button>
-            <div id="projects"></div>
-            <h2>Files</h2>
-            <input id="fileSearch" type="search" placeholder="Search paths…" autocomplete="off" spellcheck="false" aria-label="Search workspace paths" />
-            <p id="filePicks" class="status-line">No files named yet. Check files to send them with Ask/Edit.</p>
-            <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
-            <div id="files"></div>
-            <h2>Git</h2>
-            <div id="git" class="git-pane">
-              <p id="gitMeta" class="status-line">No git status yet.</p>
-              <div id="gitFiles"></div>
-              <textarea id="gitMessage" rows="2" placeholder="Commit message (local only, no push)"></textarea>
-              <div class="git-actions">
-                <button id="gitDiffBtn" class="btn" type="button" title="Review only — local diff; commit here, no push or PR">Show diff</button>
-                <button id="gitCommitBtn" class="btn primary" type="button">Commit</button>
+        <aside class="sidebar pane riveted">
+          <nav class="side-tabs" aria-label="Project panels">
+            <button type="button" class="btn primary" data-side="files">Files</button>
+            <button type="button" class="btn" data-side="git">Git</button>
+            <button type="button" class="btn" data-side="vault">Vault</button>
+            <button type="button" class="btn" data-side="links">Links</button>
+          </nav>
+          <div class="scroll side-body">
+            <section id="sideFiles" class="side-panel">
+              <button id="openBtn" class="btn primary block">Open workspace</button>
+              <div id="projects"></div>
+              <input id="fileSearch" type="search" placeholder="Search paths…" autocomplete="off" spellcheck="false" aria-label="Search workspace paths" />
+              <p id="filePicks" class="status-line">No files named yet. Check files to send with Go (use Edit mode).</p>
+              <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
+              <div id="files"></div>
+            </section>
+            <section id="sideGit" class="side-panel" hidden>
+              <div id="git" class="git-pane">
+                <p id="gitMeta" class="status-line">No git status yet.</p>
+                <div id="gitFiles"></div>
+                <textarea id="gitMessage" rows="2" placeholder="Commit message (local only, no push)"></textarea>
+                <div class="git-actions">
+                  <button id="gitDiffBtn" class="btn" type="button" title="Review only — local diff; commit here, no push or PR">Show diff</button>
+                  <button id="gitCommitBtn" class="btn primary" type="button">Commit</button>
+                </div>
               </div>
-            </div>
-            <h2>Vault</h2>
-            <p id="vaultMeta" class="status-line">FarmBrainVault</p>
-            <input id="vaultSearch" type="search" placeholder="Search vault notes…" autocomplete="off" spellcheck="false" aria-label="Search Obsidian vault notes" />
-            <div id="vaultHits"></div>
-            <h2>Links</h2>
-            <div id="links"></div>
+            </section>
+            <section id="sideVault" class="side-panel" hidden>
+              <p id="vaultMeta" class="status-line">FarmBrainVault</p>
+              <input id="vaultSearch" type="search" placeholder="Search vault notes…" autocomplete="off" spellcheck="false" aria-label="Search Obsidian vault notes" />
+              <div id="vaultHits"></div>
+            </section>
+            <section id="sideLinks" class="side-panel" hidden>
+              <div id="links"></div>
+            </section>
           </div>
-        </section>
+        </aside>
 
-        <section class="pane">
-          <h2>Session</h2>
+        <section class="main-pane pane riveted">
+          <div id="editorPane" class="editor-pane">
+            <div id="editorBar" class="editor-bar">
+              <span id="editorPath" class="status-line">No file open.</span>
+              <span id="editorDirty" class="editor-dirty" hidden aria-live="polite">● unsaved</span>
+              <button id="editorSave" class="btn primary" type="button" disabled>Save</button>
+            </div>
+            <div id="editor"></div>
+          </div>
           <div class="center-tabs">
-            <button class="btn primary" data-tab="session">Chat</button>
-            <button class="btn" data-tab="log">Log</button>
-            <button class="btn" data-tab="diff">Diff</button>
-            <button class="btn" data-tab="file">File</button>
-            <button class="btn" data-tab="term">Term</button>
-            <button id="applyBtn" class="btn">Apply remaining</button>
-            <button id="rejectBtn" class="btn">Reject</button>
+            <button class="btn primary" data-tab="session" type="button">Output</button>
+            <button class="btn" data-tab="diff" type="button">Diff</button>
+            <button class="btn" data-tab="log" type="button">Log</button>
+            <button class="btn" data-tab="term" type="button">Term</button>
+            <button class="btn" data-tab="dashboard" type="button">Farm</button>
+            <button id="applyBtn" class="btn" type="button" title="Apply hunk">Apply remaining</button>
+            <button id="rejectBtn" class="btn" type="button">Reject</button>
           </div>
           <p id="qcBanner" class="qc-banner" hidden>
             farm-brain QC gate — Forge will not auto-apply. Confirm in the desk before any write. The existing coder QC gate still applies.
@@ -79,14 +99,6 @@
               <div id="changeList" class="change-list" hidden></div>
               <div id="diffBody"></div>
             </div>
-            <div id="editorPane" class="editor-pane">
-              <div id="editorBar" class="editor-bar">
-                <span id="editorPath" class="status-line">No file open.</span>
-                <span id="editorDirty" class="editor-dirty" hidden aria-live="polite">● unsaved</span>
-                <button id="editorSave" class="btn primary" type="button" disabled>Save</button>
-              </div>
-              <div id="editor"></div>
-            </div>
             <div id="term">
               <p id="termMeta" class="status-line">Local cmd in this workspace. Jeff-only — the model cannot see or run this pane.</p>
               <pre id="termOut"></pre>
@@ -96,28 +108,42 @@
                 <button type="button" id="termRestart" class="btn">Restart</button>
               </form>
             </div>
+            <div id="dashboard">
+              <div id="mesh" class="scroll mesh"></div>
+            </div>
           </div>
-        </section>
-
-        <section class="pane">
-          <h2>Mesh</h2>
-          <div id="mesh" class="scroll mesh"></div>
         </section>
       </main>
 
-      <footer class="composer">
-        <div>
+      <footer class="composer riveted">
+        <div class="composer-row">
+          <label class="picker mode-pick">
+            <span>Mode</span>
+            <select id="goMode" aria-label="Ask, Edit, or Compare mode">
+              <option value="ask">Ask</option>
+              <option value="edit" selected>Edit</option>
+              <option value="compare-ask">Compare ask</option>
+              <option value="compare-edit">Compare edit</option>
+            </select>
+          </label>
+          <label class="picker compare-pick" id="comparePickLabel">
+            <span>Compare</span>
+            <select id="compareSelect" multiple size="3" aria-label="Compare up to three models"></select>
+          </label>
           <div id="recipes" class="recipes"></div>
-          <div id="comparePicks" class="compare-picks"></div>
+        </div>
+        <div class="composer-main">
           <div id="statusLine" class="status-line">Starting Forge…</div>
-          <textarea id="prompt" placeholder="Ask for Q&amp;A. To create or change files, use Edit — check named files, then Apply hunk. Ctrl+Enter to send."></textarea>
+          <textarea id="prompt" placeholder="One Go — Ask for Q&amp;A, or use Edit to change files (inspect then diff). Check named files. Apply hunk on Diff. Ctrl+Enter."></textarea>
         </div>
         <div class="actions">
-          <button id="askBtn" class="btn primary">Ask</button>
-          <button id="editBtn" class="btn">Edit</button>
-          <button id="compareAskBtn" class="btn">Compare ask</button>
-          <button id="compareEditBtn" class="btn">Compare edit</button>
+          <button id="goBtn" class="btn primary go-btn" type="button">Go</button>
+          <button id="askBtn" class="btn" type="button" hidden aria-hidden="true">Ask</button>
+          <button id="editBtn" class="btn" type="button" hidden aria-hidden="true">Edit</button>
+          <button id="compareAskBtn" class="btn" type="button" hidden aria-hidden="true">Compare ask</button>
+          <button id="compareEditBtn" class="btn" type="button" hidden aria-hidden="true">Compare edit</button>
         </div>
+        <div id="comparePicks" hidden aria-hidden="true"></div>
       </footer>
     </div>
     <div id="discardGate" class="qc-gate" hidden>
