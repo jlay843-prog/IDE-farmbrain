@@ -81,6 +81,24 @@ def test_edit_endpoint_includes_change_list(tmp_path, monkeypatch):
     assert data["changes"][1]["kind"] == "added"
 
 
+def test_reveal_opens_workspace_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    from forge.state import set_workspace
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    note = root / "hello.py"
+    note.write_text("print('hi')\n", encoding="utf-8")
+    set_workspace(root)
+    opened = []
+    monkeypatch.setattr("forge.launch.os.startfile", lambda path: opened.append(path), raising=False)
+    status, payload, _ = handle_api("POST", "/api/reveal", {}, {"path": "hello.py"})
+    assert status == 200
+    data = json.loads(payload)
+    assert data["ok"] is True
+    assert opened == [str(note)]
+
+
 def test_apply_endpoint_accepts_hunk_ids(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     from forge.state import set_workspace

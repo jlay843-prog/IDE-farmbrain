@@ -13,3 +13,7 @@ if (-not $env:ELECTRON_BUILDER_CACHE) {
 
 npm run dist:win
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Write-Host "Refreshing Desktop and Start Menu shortcuts..."
+& (Join-Path $Root "deploy\windows\Install-Forge-Shortcut.ps1")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

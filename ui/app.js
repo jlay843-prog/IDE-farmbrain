@@ -36,6 +36,7 @@ const state = {
   termStarted: false,
   uiMode: "easy",
   easyParent: "",
+  lastEasyFile: "",
 };
 
 let qcWaiter = null;
@@ -183,7 +184,10 @@ function applyUiMode(mode) {
         ? "Describe what you want — Enter to send. Forge creates or changes files; click Accept when ready."
         : "Ask or Edit — Enter to send, Shift+Enter for newline. Check named files for Edit. Apply hunks on Diff.";
   }
-  if (chosen === "advanced") hideEasyAccept();
+  if (chosen === "advanced") {
+    hideEasyAccept();
+    hideEasyOpen();
+  }
 }
 
 async function setUiMode(mode) {
@@ -194,6 +198,44 @@ async function setUiMode(mode) {
 function hideEasyAccept() {
   const bar = $("#easyAccept");
   if (bar) bar.hidden = true;
+}
+
+function hideEasyOpen() {
+  const bar = $("#easyOpen");
+  if (bar) bar.hidden = true;
+  state.lastEasyFile = "";
+}
+
+function primaryEasyFile(changes, changed) {
+  const rows = changes && changes.length ? changes : [];
+  const added = rows.find((row) => row.new || row.kind === "added");
+  if (added && added.path) return added.path;
+  if (changed && changed.length) return changed[changed.length - 1];
+  if (rows.length && rows[0].path) return rows[0].path;
+  return "";
+}
+
+function showEasyOpen(filePath) {
+  const bar = $("#easyOpen");
+  const summary = $("#easyOpenSummary");
+  if (!bar || !isEasyMode() || !filePath) {
+    hideEasyOpen();
+    return;
+  }
+  state.lastEasyFile = filePath;
+  if (summary) summary.textContent = `Applied ${filePath}. Open it in your default app.`;
+  bar.hidden = false;
+}
+
+async function openEasyFile() {
+  const rel = state.lastEasyFile;
+  if (!rel) return toast("No file to open.");
+  try {
+    await api("/api/reveal", { method: "POST", body: JSON.stringify({ path: rel }) });
+    toast(`Opened ${rel}`);
+  } catch (err) {
+    toast(String(err.message || err));
+  }
 }
 
 function showEasyAccept(changes) {
@@ -1673,6 +1715,7 @@ async function sendEasy() {
   if (!prompt) return;
   if (promptEl) promptEl.value = "";
   hideEasyAccept();
+  hideEasyOpen();
   addMessage("user", prompt, "easy");
   const bubble = addMessage("assistant", "", "easy");
   bubble.classList.add("streaming");
@@ -1981,12 +2024,16 @@ async function applyHunks(ids, single) {
       body: JSON.stringify(payload),
     });
     (ids || pendingHunkIds()).forEach((id) => markHunk(id, "applied"));
+    const applied = out.changed || [];
+    const easyFile = isEasyMode() ? primaryEasyFile(state.changes, applied) : "";
     hideEasyAccept();
     state.lastDiff = "";
     state.changes = [];
     state.hunks = [];
     state.hunkStatus = {};
-    toast("Applied " + (out.changed || []).join(", ") + (single && ids ? ` (hunk ${ids.join(",")})` : ""));
+    if (easyFile) showEasyOpen(easyFile);
+    else hideEasyOpen();
+    toast("Applied " + applied.join(", ") + (single && ids ? ` (hunk ${ids.join(",")})` : ""));
     await refreshAll();
     await refreshLog();
   } catch (err) {
@@ -2077,11 +2124,18 @@ function bind() {
   if (easyRejectBtn) {
     easyRejectBtn.addEventListener("click", () => {
       hideEasyAccept();
+      hideEasyOpen();
       state.lastDiff = "";
       state.changes = [];
       state.hunks = [];
       state.hunkStatus = {};
       toast("Changes rejected.");
+    });
+  }
+  const easyOpenBtn = $("#easyOpenBtn");
+  if (easyOpenBtn) {
+    easyOpenBtn.addEventListener("click", () => {
+      openEasyFile().catch((err) => toast(String(err.message || err)));
     });
   }
   $("#codeModel").addEventListener("change", async () => {

@@ -3,43 +3,65 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $LaunchPs1 = Join-Path $Root "scripts\launch-forge.ps1"
 $LaunchCmd = Join-Path $Root "scripts\launch-forge.cmd"
-$ElectronExe = Join-Path $Root "node_modules\electron\dist\electron.exe"
 $IconIco = Join-Path $Root "ui\forge.ico"
 
-if (-not (Test-Path $ElectronExe)) {
-  Write-Host "Installing Forge desktop dependencies..."
-  Push-Location $Root
-  try { npm install --no-fund --no-audit } finally { Pop-Location }
+function Get-RealDesktopPath {
+  # Honors OneDrive Desktop redirect when Explorer uses it.
+  return [Environment]::GetFolderPath("Desktop")
+}
+
+function Resolve-ForgeTarget {
+  param([string]$RepoRoot)
+  $Packaged = Join-Path $RepoRoot "dist\win-unpacked\Forge.exe"
+  if (Test-Path $Packaged) {
+    return @{ Kind = "exe"; Path = $Packaged; Args = ""; WorkDir = Split-Path $Packaged }
+  }
+  $Installed = Join-Path $env:LOCALAPPDATA "Programs\Forge\Forge.exe"
+  if (Test-Path $Installed) {
+    return @{ Kind = "exe"; Path = $Installed; Args = ""; WorkDir = Split-Path $Installed }
+  }
+  if (Test-Path $LaunchPs1) {
+    return @{ Kind = "ps1"; Path = $LaunchPs1; Args = ""; WorkDir = $RepoRoot }
+  }
+  return $null
+}
+
+$target = Resolve-ForgeTarget -RepoRoot $Root
+if (-not $target) {
+  throw "No Forge launch target found (expected dist\win-unpacked\Forge.exe, installed Forge, or scripts\launch-forge.ps1)."
 }
 
 $ws = New-Object -ComObject WScript.Shell
+$desktop = Get-RealDesktopPath
 $targets = @(
   (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Forge.lnk"),
-  (Join-Path $env:USERPROFILE "Desktop\Forge.lnk")
+  (Join-Path $desktop "Forge.lnk")
 )
 
 foreach ($path in $targets) {
   $dir = Split-Path $path
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
   $sc = $ws.CreateShortcut($path)
-  if (Test-Path $ElectronExe) {
-    # App path must be the repo root so package.json name "forge-desk" is used.
-    $sc.TargetPath = "$ElectronExe"
-    $sc.Arguments = "`"$Root`""
-    $sc.WorkingDirectory = "$Root"
+  if ($target.Kind -eq "exe") {
+    $sc.TargetPath = $target.Path
+    $sc.Arguments = $target.Args
+    $sc.WorkingDirectory = $target.WorkDir
     if (Test-Path $IconIco) {
       $sc.IconLocation = "$IconIco"
     } else {
-      $sc.IconLocation = "$ElectronExe,0"
+      $sc.IconLocation = "$($target.Path),0"
     }
   } else {
     $sc.TargetPath = "powershell.exe"
-    $sc.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$LaunchPs1`""
-    $sc.WorkingDirectory = "$Root"
+    $sc.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$($target.Path)`""
+    $sc.WorkingDirectory = $target.WorkDir
+    if (Test-Path $IconIco) {
+      $sc.IconLocation = "$IconIco"
+    }
   }
   $sc.Description = "Forge local Qwen coding desk (AMD coder on EVO)"
   $sc.Save()
-  Write-Host "Wrote $path"
+  Write-Host "Wrote $path -> $($target.Path)"
 }
 
 $cmd = Join-Path $Root "forge.cmd"

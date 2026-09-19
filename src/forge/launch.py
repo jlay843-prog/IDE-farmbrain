@@ -93,12 +93,18 @@ def launch(target: str, note: str = "", url: str = "") -> dict:
     return {"ok": False, "error": f"unknown launch target {target!r}"}
 
 
-def _open_path(path: Path) -> dict:
+def open_path(path: Path) -> dict:
+    if not path.exists():
+        return {"ok": False, "error": f"not found: {path}"}
     if os.name == "nt":
         os.startfile(str(path))  # type: ignore[attr-defined]
     else:
         webbrowser.open(path.as_uri())
     return {"ok": True, "target": "path", "path": str(path)}
+
+
+def _open_path(path: Path) -> dict:
+    return open_path(path)
 
 
 def link_catalog() -> list[dict]:

@@ -158,6 +158,15 @@ def test_install_shortcut_uses_forge_icon():
     text = (root / "deploy" / "windows" / "Install-Forge-Shortcut.ps1").read_text(encoding="utf-8")
     assert "ui\\forge.ico" in text.replace("/", "\\") or "ui/forge.ico" in text
     assert "IconLocation" in text
+    assert "dist\\win-unpacked\\Forge.exe" in text.replace("/", "\\")
+    assert "GetFolderPath" in text
+    assert "node_modules\\electron\\dist\\electron.exe" not in text.replace("/", "\\")
+
+
+def test_dist_win_refreshes_shortcuts():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "scripts" / "dist-win.ps1").read_text(encoding="utf-8")
+    assert "Install-Forge-Shortcut.ps1" in text
 
 
 def test_smoke_all_script_chains_checks():
@@ -533,6 +542,9 @@ def test_desk_ui_has_easy_advanced_toggle():
     assert 'id="advancedModeBtn"' in html
     assert 'id="easySetup"' in html
     assert 'id="easyAcceptBtn"' in html
+    assert 'id="easyOpenBtn"' in html
+    assert "/api/reveal" in js
+    assert "openEasyFile" in js
     assert "sendEasy" in js
     assert "isEasyMode" in js
     assert "mode-easy" in css

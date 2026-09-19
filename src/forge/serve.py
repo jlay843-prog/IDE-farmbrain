@@ -23,7 +23,7 @@ from forge.git import snapshot as git_snapshot
 from forge.edit import apply_diff
 from forge.handoff import snapshot as handoff_snapshot, remember as remember_handoff
 from forge.hosts import LINKS
-from forge.launch import launch, link_catalog
+from forge.launch import launch, link_catalog, open_path
 from forge.vault import search_vault, vault_info
 from forge.log import log_path, log_turn, read_turns
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
@@ -140,6 +140,15 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes(set_tier(tier, body.get("model")))
     if path == "/api/open" and method == "POST":
         return _json_bytes(set_workspace(body["path"]))
+    if path == "/api/reveal" and method == "POST":
+        root = workspace_path()
+        if root is None:
+            raise ValueError("no workspace")
+        rel = body.get("path") or ""
+        if not rel:
+            raise ValueError("path required")
+        target = resolve_under(root, rel)
+        return _json_bytes(open_path(target))
     if path == "/api/mode" and method == "POST":
         return _json_bytes(set_ui_mode(body.get("mode") or body.get("ui_mode") or ""))
     if path == "/api/easy/defaults" and method == "GET":

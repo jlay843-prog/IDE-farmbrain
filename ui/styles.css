@@ -719,6 +719,7 @@ pre.diff { margin: 0; font-family: var(--mono); font-size: 11px; white-space: pr
 }
 .easy-accept[hidden] { display: none; }
 .easy-accept-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.easy-note { margin: 0; font-size: 11px; color: var(--cream-dim); }
 .easy-field {
   display: grid;
   gap: 4px;
