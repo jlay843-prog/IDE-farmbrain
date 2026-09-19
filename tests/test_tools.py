@@ -2,7 +2,17 @@ from pathlib import Path
 
 from forge.session import run_edit
 from forge.state import set_workspace
-from forge.tools import ALLOWED, OLLAMA_TOOLS, parse_tool_markup, run_tool, tool_calls_from_reply
+from forge.tools import ALLOWED, OLLAMA_TOOLS, parse_tool_markup, run_tool, strip_tool_markup, tool_calls_from_reply
+
+LEAKED_TOOL_XML = """<tool name="grep">
+<parameter=path>
+src/*.py
+</parameter>
+<parameter=pattern>
+import
+</parameter>
+</function>
+</tool_call>"""
 
 
 def _proj(tmp_path: Path) -> Path:
@@ -60,6 +70,61 @@ def test_parse_tool_markup_and_native_calls():
     )
     assert native[0]["name"] == "list"
     assert native[0]["args"]["path"] == "src"
+
+
+def test_parse_leaked_mixed_tool_xml():
+    calls = parse_tool_markup(LEAKED_TOOL_XML)
+    assert calls == [{"name": "grep", "args": {"path": "src/*.py", "pattern": "import"}}]
+    assert strip_tool_markup(LEAKED_TOOL_XML) == ""
+
+
+def test_parse_function_close_and_parameter_name_attr():
+    xml = '<function name="read"><parameter name="path">src/hello.py</parameter></function>'
+    calls = parse_tool_markup(xml)
+    assert calls == [{"name": "read", "args": {"path": "src/hello.py"}}]
+    assert strip_tool_markup(xml) == ""
+
+
+def test_edit_executes_leaked_grep_shape(tmp_path: Path, monkeypatch):
+    root = _proj(tmp_path)
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    set_workspace(root)
+    seen = {"n": 0}
+
+    def fake_chat(base, model, messages, tools=None, **kwargs):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return {
+                "text": LEAKED_TOOL_XML,
+                "model": model,
+                "done": True,
+                "raw": {},
+                "tool_calls": [],
+            }
+        return {
+            "text": "--- a/src/hello.py\n+++ b/src/hello.py\n@@ -1,2 +1,2 @@\n def hello():\n-    return 'hi'\n+    return 'hello'\n",
+            "model": model,
+            "done": True,
+            "raw": {},
+            "tool_calls": [],
+        }
+
+    monkeypatch.setattr(
+        "forge.session.active_session",
+        lambda *a, **k: {
+            "tier": "code",
+            "model": "qwen3-coder:30b",
+            "base": "http://127.0.0.1:9",
+            "blocked": False,
+            "backend": {"id": "amd", "label": "EVO AMD", "gpu": "GTT", "ok": True},
+        },
+    )
+    monkeypatch.setattr("forge.session.chat", fake_chat)
+    out = run_edit("find imports", [], workspace=root)
+    assert [t["name"] for t in out["tools"]] == ["grep"]
+    assert out["tools"][0]["ok"] is True
+    assert "<tool" not in out["text"]
+    assert "parameter" not in out["text"].lower()
 
 
 def test_edit_tool_loop_then_diff(tmp_path: Path, monkeypatch):

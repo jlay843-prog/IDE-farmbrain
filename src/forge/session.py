@@ -15,8 +15,15 @@ from forge.tools import (
     MAX_ROUNDS,
     OLLAMA_TOOLS,
     format_tool_result,
+    parse_tool_markup,
     run_tool,
+    strip_tool_markup,
     tool_calls_from_reply,
+)
+
+ASK_TOOL_NUDGE = (
+    "Ask mode can't read or search files. Switch to Edit on the desk, "
+    "check the target file(s) as named context, send your prompt, then review and Apply hunk."
 )
 
 
@@ -78,6 +85,14 @@ def build_messages(
     user = prompt if not context else f"{prompt}\n\n{context}"
     messages.append({"role": "user", "content": user})
     return messages
+
+
+def sanitize_ask_reply(text: str) -> str:
+    raw = text or ""
+    if not parse_tool_markup(raw):
+        return raw
+    cleaned = strip_tool_markup(raw).strip()
+    return cleaned or ASK_TOOL_NUDGE
 
 
 def _emit_begin(sess: dict[str, Any], on_begin: BeginFn | None) -> None:
@@ -191,9 +206,13 @@ def _generate(
                 }
             )
             continue
+        if use_tools:
+            last["text"] = strip_tool_markup(last.get("text") or "")
         last["tools"] = traces
         last["tool_rounds"] = tool_rounds
         return last
+    if use_tools:
+        last["text"] = strip_tool_markup(last.get("text") or "")
     last["tools"] = traces
     last["tool_rounds"] = tool_rounds
     return last
@@ -222,7 +241,7 @@ def run_ask(
         "backend": sess["backend"]["id"],
         "gpu": sess["backend"]["gpu"],
         "base": sess["base"],
-        "text": reply["text"],
+        "text": sanitize_ask_reply(reply["text"]),
         "files": [f["path"] for f in named],
     }
 

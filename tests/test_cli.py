@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from forge import __version__
 from forge.cli import build_parser, main
 from forge.log import log_turn, read_turns
 
@@ -439,7 +440,7 @@ def test_package_json_has_windows_installer_and_portable():
 def test_health_cli_reports_python_and_monaco(capsys):
     code = main(["health"])
     out = capsys.readouterr().out
-    assert "forge 1.1.0" in out
+    assert f"forge {__version__}" in out
     assert "python=" in out
     assert "monaco=" in out
     assert code in (0, 2)
@@ -449,7 +450,7 @@ def test_health_cli_json(capsys):
     assert main(["health", "--json"]) in (0, 2)
     data = json.loads(capsys.readouterr().out)
     assert data["name"] == "forge"
-    assert data["version"] == "1.1.0"
+    assert data["version"] == __version__
     assert "python" in data
     assert "monaco" in data
 
@@ -519,5 +520,5 @@ def test_desk_composer_chat_enter_and_transcript():
 def test_revisions_doc_lists_current_version():
     root = Path(__file__).resolve().parents[1]
     text = (root / "docs" / "REVISIONS.md").read_text(encoding="utf-8")
-    assert "1.1.0" in text
-    assert "composer" in text.lower()
+    assert __version__ in text
+    assert "tool-call" in text.lower() or "tool xml" in text.lower() or "mixed tool" in text.lower()

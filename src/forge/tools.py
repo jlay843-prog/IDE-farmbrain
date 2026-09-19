@@ -24,10 +24,21 @@ MAX_GREP_BYTES = 200_000
 MAX_TOOL_CHARS = 12_000
 MAX_WALK = 5_000
 
-TOOL_XML = re.compile(
-    r"<tool\s+name=[\"'](read|list|grep)[\"']\s*>(.*?)</tool>",
+TOOL_NAMES = "|".join(ALLOWED)
+TOOL_OPEN_RE = re.compile(
+    rf"<(?:tool|function)\s+name\s*=\s*[\"']?({TOOL_NAMES})[\"']?\s*>",
+    re.I,
+)
+TOOL_BLOCK_RE = re.compile(
+    rf"<(?:tool|function)\s+name\s*=\s*[\"']?({TOOL_NAMES})[\"']?\s*>(.*?)</(?:tool|function|tool_call)\s*>",
     re.I | re.S,
 )
+PARAM_TAG_RE = re.compile(
+    r"<parameter(?:\s+name\s*=\s*[\"']?(\w+)[\"']?|=([a-z_]+))\s*>(.*?)</parameter>",
+    re.I | re.S,
+)
+TOOL_WRAPPER_RE = re.compile(r"</?tool_call\s*>", re.I)
+ORPHAN_CLOSE_RE = re.compile(rf"</(?:tool|function|tool_call)\s*>", re.I)
 
 OLLAMA_TOOLS = [
     {
@@ -74,6 +85,17 @@ OLLAMA_TOOLS = [
 ]
 
 
+def _split_path_glob(rel: str) -> tuple[str, str]:
+    raw = (rel or "").replace("\\", "/").strip("/")
+    if not raw or ("*" not in raw and "?" not in raw and "[" not in raw):
+        return raw, ""
+    parts = raw.split("/")
+    for i in range(len(parts) - 1, -1, -1):
+        if "*" in parts[i] or "?" in parts[i] or "[" in parts[i]:
+            return "/".join(parts[:i]), parts[i]
+    return "", parts[-1]
+
+
 def _clip(text: str, limit: int = MAX_TOOL_CHARS) -> str:
     if len(text) <= limit:
         return text
@@ -110,15 +132,51 @@ def parse_native_tool_calls(message: dict[str, Any] | None) -> list[dict[str, An
     return calls
 
 
+def _normalize_grep_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    if name != "grep":
+        return args
+    if "pattern" not in args and "path" in args and len(args) == 1:
+        return {"pattern": args["path"]}
+    return args
+
+
+def _args_from_block(body: str) -> dict[str, Any]:
+    raw = (body or "").strip()
+    if not raw:
+        return {}
+    if raw.startswith("{"):
+        return _args(raw)
+    args: dict[str, Any] = {}
+    for match in PARAM_TAG_RE.finditer(raw):
+        key = (match.group(1) or match.group(2) or "").strip().lower()
+        if not key:
+            continue
+        args[key] = match.group(3).strip()
+    if args:
+        return args
+    return _args(raw)
+
+
 def parse_tool_markup(text: str) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
-    for match in TOOL_XML.finditer(text or ""):
+    seen: set[tuple[str, tuple[tuple[str, Any], ...]]] = set()
+    for match in TOOL_BLOCK_RE.finditer(text or ""):
         name = match.group(1).strip().lower()
-        args = _args(match.group(2))
-        if name == "grep" and "pattern" not in args and "path" in args:
-            args = {"pattern": args["path"], **{k: v for k, v in args.items() if k != "path"}}
+        args = _normalize_grep_args(name, _args_from_block(match.group(2)))
+        key = (name, tuple(sorted(args.items())))
+        if key in seen:
+            continue
+        seen.add(key)
         calls.append({"name": name, "args": args})
     return calls
+
+
+def strip_tool_markup(text: str) -> str:
+    raw = text or ""
+    cleaned = TOOL_BLOCK_RE.sub("", raw)
+    cleaned = TOOL_WRAPPER_RE.sub("", cleaned)
+    cleaned = ORPHAN_CLOSE_RE.sub("", cleaned)
+    return cleaned.strip()
 
 
 def tool_calls_from_reply(text: str, raw: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -143,11 +201,15 @@ def run_tool(workspace: Path, name: str, args: dict[str, Any] | None = None) -> 
             return _read(workspace, str(payload.get("path") or ""))
         if tool == "list":
             return _list(workspace, str(payload.get("path") or ""))
+        rel = str(payload.get("path") or "")
+        glob = str(payload.get("glob") or "")
+        if not glob:
+            rel, glob = _split_path_glob(rel)
         return _grep(
             workspace,
             str(payload.get("pattern") or ""),
-            rel=str(payload.get("path") or ""),
-            glob=str(payload.get("glob") or ""),
+            rel=rel,
+            glob=glob,
         )
     except (FileNotFoundError, ValueError, OSError) as exc:
         return {"ok": False, "name": tool, "error": str(exc)}
