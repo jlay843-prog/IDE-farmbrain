@@ -131,7 +131,13 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
     if path == "/api/open" and method == "POST":
         return _json_bytes(set_workspace(body["path"]))
     if path == "/api/ask" and method == "POST":
-        result = run_ask(body["prompt"], body.get("files") or [], tier=body.get("tier"), model=body.get("model"))
+        result = run_ask(
+            body["prompt"],
+            body.get("files") or [],
+            tier=body.get("tier"),
+            model=body.get("model"),
+            history=body.get("history"),
+        )
         log_turn("ask", result, body.get("prompt") or "")
         return _json_bytes(result)
     if path == "/api/edit" and method == "POST":
@@ -141,6 +147,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
             apply=False,
             tier=body.get("tier"),
             model=body.get("model"),
+            history=body.get("history"),
         )
         log_turn("edit", result, body.get("prompt") or "")
         return _json_bytes(result)
@@ -310,6 +317,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         prompt = (body.get("prompt") or "").strip()
         files = body.get("files") or []
+        history = body.get("history")
 
         def on_begin(meta: dict[str, Any]) -> None:
             self._write_sse({"meta": meta})
@@ -330,6 +338,7 @@ class Handler(BaseHTTPRequestHandler):
                     apply=False,
                     tier=body.get("tier"),
                     model=body.get("model"),
+                    history=history,
                     on_begin=on_begin,
                     on_delta=on_delta,
                     on_tool=on_tool,
@@ -340,6 +349,7 @@ class Handler(BaseHTTPRequestHandler):
                     files,
                     tier=body.get("tier"),
                     model=body.get("model"),
+                    history=history,
                     on_begin=on_begin,
                     on_delta=on_delta,
                 )

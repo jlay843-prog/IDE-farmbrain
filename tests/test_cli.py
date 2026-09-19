@@ -439,7 +439,7 @@ def test_package_json_has_windows_installer_and_portable():
 def test_health_cli_reports_python_and_monaco(capsys):
     code = main(["health"])
     out = capsys.readouterr().out
-    assert "forge 1.0.0" in out
+    assert "forge 1.1.0" in out
     assert "python=" in out
     assert "monaco=" in out
     assert code in (0, 2)
@@ -449,7 +449,7 @@ def test_health_cli_json(capsys):
     assert main(["health", "--json"]) in (0, 2)
     data = json.loads(capsys.readouterr().out)
     assert data["name"] == "forge"
-    assert data["version"] == "1.0.0"
+    assert data["version"] == "1.1.0"
     assert "python" in data
     assert "monaco" in data
 
@@ -495,3 +495,29 @@ def test_vault_cli_search(tmp_path, monkeypatch, capsys):
     assert main(["vault", "--json"]) == 0
     info = capsys.readouterr().out
     assert "FarmBrainVault" in info
+
+
+def test_desk_composer_chat_enter_and_transcript():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "ui" / "index.html").read_text(encoding="utf-8")
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    css = (root / "ui" / "styles.css").read_text(encoding="utf-8")
+    assert 'id="composerTranscript"' in html
+    assert "boundedHistory" in js
+    assert "recordConversationTurn" in js
+    assert "setThinkingBanner" in js
+    assert "clearThinkingBanner" in js
+    assert "history: boundedHistory()" in js
+    assert "promptEl.value = \"\"" in js
+    assert "if (state.busy) return" in js
+    assert "e.shiftKey) return" in js
+    assert 'goBtn.textContent = busy ? "Working…" : "Go"' in js
+    assert ".thinking-banner" in css
+    assert 'id="appVersion"' in html
+
+
+def test_revisions_doc_lists_current_version():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "docs" / "REVISIONS.md").read_text(encoding="utf-8")
+    assert "1.1.0" in text
+    assert "composer" in text.lower()

@@ -1,4 +1,6 @@
 const $ = (sel) => document.querySelector(sel);
+const MAX_CONVERSATION_TURNS = 12;
+const MAX_CONVERSATION_CHARS = 24000;
 const state = {
   session: { workspace: "", tier: "code", last_model: "qwen3-coder:30b", projects: [] },
   files: [],
@@ -25,6 +27,7 @@ const state = {
   editorDirty: false,
   editorSavedText: "",
   compareModels: [],
+  conversation: [],
   busy: false,
   logPath: "",
   protected: false,
@@ -150,6 +153,45 @@ function renderHeaderStatus(status, mesh) {
     dot.classList.remove("warn", "down");
     if (!farm) dot.classList.add("down");
     else if (vast) dot.classList.add("warn");
+  }
+}
+
+function renderAppVersion(version) {
+  const el = $("#appVersion");
+  if (el && version) el.textContent = `v${version}`;
+}
+
+function transcriptHost() {
+  return $("#composerTranscript") || $("#session");
+}
+
+function scrollTranscript() {
+  const box = transcriptHost();
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+function boundedHistory() {
+  const turns = state.conversation.slice(-MAX_CONVERSATION_TURNS * 2);
+  let total = 0;
+  const out = [];
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i];
+    const content = String(turn.content || "");
+    if (!content) continue;
+    if (total + content.length > MAX_CONVERSATION_CHARS && out.length) break;
+    out.unshift({ role: turn.role, content });
+    total += content.length;
+  }
+  return out;
+}
+
+function recordConversationTurn(userText, assistantText) {
+  const user = String(userText || "").trim();
+  const assistant = String(assistantText || "").trim();
+  if (user) state.conversation.push({ role: "user", content: user });
+  if (assistant) state.conversation.push({ role: "assistant", content: assistant });
+  while (state.conversation.length > MAX_CONVERSATION_TURNS * 2) {
+    state.conversation.shift();
   }
 }
 
@@ -793,12 +835,39 @@ async function ensureTerm() {
 }
 
 function addMessage(role, text, meta = "") {
+  const host = transcriptHost();
   const el = document.createElement("div");
   el.className = `msg ${role}`;
   el.innerHTML = `${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}<div class="body">${escapeHtml(text)}</div>`;
-  $("#session").appendChild(el);
-  $("#session").scrollTop = $("#session").scrollHeight;
+  if (host) host.appendChild(el);
+  scrollTranscript();
   return el;
+}
+
+function setThinkingBanner(bubble, label, detail = "") {
+  if (!bubble) return;
+  let banner = bubble.querySelector(".thinking-banner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.className = "thinking-banner";
+    banner.setAttribute("aria-live", "polite");
+    banner.innerHTML =
+      '<span class="thinking-pulse" aria-hidden="true"></span><span class="thinking-label"></span><span class="thinking-detail"></span>';
+    bubble.prepend(banner);
+    bubble.classList.add("thinking");
+  }
+  const labelEl = banner.querySelector(".thinking-label");
+  const detailEl = banner.querySelector(".thinking-detail");
+  if (labelEl) labelEl.textContent = label || "Working…";
+  if (detailEl) detailEl.textContent = detail || "";
+  scrollTranscript();
+}
+
+function clearThinkingBanner(bubble) {
+  if (!bubble) return;
+  bubble.classList.remove("thinking");
+  const banner = bubble.querySelector(".thinking-banner");
+  if (banner) banner.remove();
 }
 
 function escapeHtml(s) {
@@ -1351,6 +1420,9 @@ async function refreshAll() {
     state.searchQuery = "";
     state.selectedFile = "";
     state.selectedFiles = [];
+    state.conversation = [];
+    const transcript = $("#composerTranscript");
+    if (transcript) transcript.innerHTML = "";
     const input = $("#fileSearch");
     if (input) input.value = "";
   }
@@ -1368,11 +1440,13 @@ async function refreshAll() {
     await fetchDir(state.cwd || "");
   }
   toast(`edit ${desk.state.code_model || ""} · ask ${desk.state.chat_model || ""} · ${desk.state.workspace || "no workspace"}`);
-  const [status, mesh, models] = await Promise.all([
+  const [status, mesh, models, health] = await Promise.all([
     api("/api/status"),
     api("/api/mesh"),
     api("/api/models"),
+    api("/api/health").catch(() => ({ version: "" })),
   ]);
+  renderAppVersion(health.version);
   renderChips(status, mesh);
   renderPicker((models && models.picker) || pickerFromStatus(status));
   renderMesh(mesh);
@@ -1494,30 +1568,39 @@ async function readSse(res, onEvent) {
 }
 
 async function send(kind) {
-  const prompt = $("#prompt").value.trim();
+  if (state.busy) return;
+  const promptEl = $("#prompt");
+  const prompt = ((promptEl && promptEl.value) || "").trim();
   if (!prompt) return;
   if (kind === "edit" && pendingHunkIds().length) {
     toast("Apply hunks; don't click Edit again.");
   }
   const files = selectedFiles();
+  if (promptEl) promptEl.value = "";
   addMessage("user", prompt, files.length ? files.join(", ") : "no file context");
-  const bubble = addMessage("assistant", "", kind === "edit" ? "working…" : "streaming…");
+  const bubble = addMessage("assistant", "", kind === "edit" ? "edit" : "ask");
   bubble.classList.add("streaming");
   const bodyEl = bubble.querySelector(".body");
   const metaEl = bubble.querySelector(".meta");
+  setThinkingBanner(
+    bubble,
+    kind === "edit" ? "Inspecting workspace…" : "Thinking…",
+    kind === "edit" ? "read · list · grep" : "waiting for response"
+  );
   setBusy(true);
   toast(kind === "edit" ? "Edit running — inspect then diff…" : "Streaming local Qwen…");
-    let text = "";
-    let changes = null;
-    let hunks = null;
-    let inspecting = false;
-    try {
+  let text = "";
+  let changes = null;
+  let hunks = null;
+  let inspecting = false;
+  try {
     const res = await fetch(kind === "edit" ? "/api/edit/stream" : "/api/ask/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt,
         files,
+        history: boundedHistory(),
         tier: kind === "edit" ? "code" : "chat",
         model: kind === "edit" ? $("#codeModel").value || undefined : $("#chatModel").value || undefined,
       }),
@@ -1530,7 +1613,6 @@ async function send(kind) {
       if (ev.meta) {
         const meta = `${ev.meta.model || ""} · ${ev.meta.backend || ""} · ${ev.meta.gpu || ""}`.trim();
         if (metaEl && meta) metaEl.textContent = meta;
-        toast(meta || "streaming…");
       }
       if (ev.delta) {
         if (inspecting) {
@@ -1539,27 +1621,25 @@ async function send(kind) {
         }
         text += ev.delta;
         if (bodyEl) bodyEl.textContent = text;
-        $("#session").scrollTop = $("#session").scrollHeight;
+        setThinkingBanner(bubble, "Streaming…", metaEl ? metaEl.textContent : "response in progress");
+        scrollTranscript();
       }
       if (ev.tool) {
         const t = ev.tool;
         if (t.phase === "round" || t.phase === "call") {
           inspecting = true;
           text = "";
-          if (bodyEl) bodyEl.textContent = "Inspecting workspace…";
+          if (bodyEl) bodyEl.textContent = "";
         }
         const line =
           t.phase === "call"
             ? `tool ${t.name} ${t.args && (t.args.path || t.args.pattern) ? t.args.path || t.args.pattern : ""}`.trim()
             : t.phase === "round"
-              ? `inspect round ${t.round || ""}`
+              ? `inspect round ${t.round || ""} of ${t.max || ""}`.trim()
               : `${t.name}: ${t.preview || t.error || ""}`;
-        if (metaEl) {
-          const prev = metaEl.textContent || "";
-          const base = prev && prev !== "streaming…" && prev !== "working…" ? prev : "working…";
-          metaEl.textContent = `${base} · ${line}`;
-        }
-        toast(line);
+        const inspectLabel = t.phase === "round" ? "Inspecting workspace…" : "Running tool…";
+        setThinkingBanner(bubble, inspectLabel, line);
+        if (metaEl) metaEl.textContent = line;
       }
       if (ev.error) throw new Error(ev.error);
       if (ev.done && ev.text) text = ev.text;
@@ -1575,6 +1655,7 @@ async function send(kind) {
     });
     if (bodyEl) bodyEl.textContent = text;
     if (kind === "edit") renderDiff(text, changes, hunks);
+    recordConversationTurn(prompt, text);
     toast(metaEl ? metaEl.textContent : "done");
     await refreshLog();
   } catch (err) {
@@ -1584,13 +1665,24 @@ async function send(kind) {
     toast(String(err.message || err));
   } finally {
     bubble.classList.remove("streaming");
+    clearThinkingBanner(bubble);
     setBusy(false);
   }
 }
 
 function setBusy(busy) {
   state.busy = !!busy;
-  ["goBtn", "askBtn", "editBtn", "compareAskBtn", "compareEditBtn"].forEach((id) => {
+  const goBtn = $("#goBtn");
+  if (goBtn) {
+    goBtn.disabled = busy;
+    goBtn.textContent = busy ? "Working…" : "Go";
+  }
+  const promptEl = $("#prompt");
+  if (promptEl) {
+    promptEl.classList.toggle("busy", busy);
+    promptEl.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+  ["askBtn", "editBtn", "compareAskBtn", "compareEditBtn"].forEach((id) => {
     const el = $("#" + id);
     if (el) el.disabled = busy;
   });
@@ -1604,6 +1696,7 @@ function currentGoKind() {
 }
 
 async function sendGo() {
+  if (state.busy) return;
   const { action, kind } = currentGoKind();
   if (action === "compare") return sendCompare(kind);
   return send(kind);
@@ -1618,19 +1711,26 @@ function selectedCompareModels() {
 }
 
 async function sendCompare(kind) {
-  const prompt = $("#prompt").value.trim();
+  if (state.busy) return;
+  const promptEl = $("#prompt");
+  const prompt = ((promptEl && promptEl.value) || "").trim();
   if (!prompt) return;
   const files = selectedFiles();
   const models = selectedCompareModels();
   if (models.length < 2) return toast("Pick at least two live models to compare.");
+  if (promptEl) promptEl.value = "";
   addMessage("user", prompt, `compare ${kind} · ${models.map((m) => m.model).join(", ")}`);
+  const bubble = addMessage("assistant", "", "compare");
+  setThinkingBanner(bubble, "Comparing models…", `${models.length} candidates · AMD 30B judge`);
   setBusy(true);
   toast(`Comparing ${models.length} models; AMD 30B will judge…`);
   try {
     const data = await api("/api/compare", {
       method: "POST",
-      body: JSON.stringify({ kind, prompt, files, models }),
+      body: JSON.stringify({ kind, prompt, files, models, history: boundedHistory() }),
     });
+    clearThinkingBanner(bubble);
+    bubble.remove();
     const judge = data.judge || {};
     addMessage(
       "assistant",
@@ -1644,10 +1744,13 @@ async function sendCompare(kind) {
         `${row.index}) ${row.ok ? "ok" : "fail"} · ${row.model} · ${row.backend || ""}`
       );
     }
+    recordConversationTurn(prompt, data.text || judge.reason || "");
     if (kind === "edit" && data.text) renderDiff(data.text, data.changes, data.hunks);
     toast(`Winner: ${judge.pick_model || ""} — not applied`);
     await refreshLog();
   } catch (err) {
+    clearThinkingBanner(bubble);
+    if (bubble.parentNode) bubble.remove();
     addMessage("assistant", String(err.message || err), "error");
     toast(String(err.message || err));
   } finally {
@@ -1849,7 +1952,11 @@ function bind() {
     });
   }
   $("#prompt").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) sendGo();
+    if (e.key !== "Enter") return;
+    if (e.shiftKey) return;
+    e.preventDefault();
+    if (state.busy) return;
+    sendGo();
   });
   const editorSave = $("#editorSave");
   if (editorSave) {

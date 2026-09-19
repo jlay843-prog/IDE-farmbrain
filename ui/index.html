@@ -13,6 +13,7 @@
         <div class="brand">
           <img src="/forge-icon.svg" alt="" />
           <span>FORGE</span>
+          <span id="appVersion" class="app-version" aria-label="Forge version">v1.1.0</span>
         </div>
         <div id="headerStatus" class="header-status">
           <span class="pulse-dot" aria-hidden="true"></span>
@@ -116,32 +117,39 @@
       </main>
 
       <footer class="composer riveted">
-        <div class="composer-row">
-          <label class="picker mode-pick">
-            <span>Mode</span>
-            <select id="goMode" aria-label="Ask, Edit, or Compare mode">
-              <option value="ask">Ask</option>
-              <option value="edit" selected>Edit</option>
-              <option value="compare-ask">Compare ask</option>
-              <option value="compare-edit">Compare edit</option>
-            </select>
-          </label>
-          <label class="picker compare-pick" id="comparePickLabel">
-            <span>Compare</span>
-            <select id="compareSelect" multiple size="3" aria-label="Compare up to three models"></select>
-          </label>
-          <div id="recipes" class="recipes"></div>
+        <div class="composer-top">
+          <div class="composer-row">
+            <label class="picker mode-pick">
+              <span>Mode</span>
+              <select id="goMode" aria-label="Ask, Edit, or Compare mode">
+                <option value="ask">Ask</option>
+                <option value="edit" selected>Edit</option>
+                <option value="compare-ask">Compare ask</option>
+                <option value="compare-edit">Compare edit</option>
+              </select>
+            </label>
+            <label class="picker compare-pick" id="comparePickLabel">
+              <span>Compare</span>
+              <select id="compareSelect" multiple size="3" aria-label="Compare up to three models"></select>
+            </label>
+            <div id="recipes" class="recipes"></div>
+          </div>
         </div>
-        <div class="composer-main">
-          <div id="statusLine" class="status-line">Starting Forge…</div>
-          <textarea id="prompt" placeholder="One Go — Ask for Q&amp;A, or use Edit to change files (inspect then diff). Check named files. Apply hunk on Diff. Ctrl+Enter."></textarea>
-        </div>
-        <div class="actions">
-          <button id="goBtn" class="btn primary go-btn" type="button">Go</button>
-          <button id="askBtn" class="btn" type="button" hidden aria-hidden="true">Ask</button>
-          <button id="editBtn" class="btn" type="button" hidden aria-hidden="true">Edit</button>
-          <button id="compareAskBtn" class="btn" type="button" hidden aria-hidden="true">Compare ask</button>
-          <button id="compareEditBtn" class="btn" type="button" hidden aria-hidden="true">Compare edit</button>
+        <div class="composer-chat">
+          <div id="composerTranscript" class="composer-transcript scroll" aria-live="polite" aria-label="Conversation"></div>
+          <div class="composer-input-row">
+            <div class="composer-main">
+              <div id="statusLine" class="status-line">Starting Forge…</div>
+              <textarea id="prompt" placeholder="Ask or Edit — Enter to send, Shift+Enter for newline. Check named files for Edit. Apply hunks on Diff." aria-label="Prompt"></textarea>
+            </div>
+            <div class="actions">
+              <button id="goBtn" class="btn primary go-btn" type="button">Go</button>
+              <button id="askBtn" class="btn" type="button" hidden aria-hidden="true">Ask</button>
+              <button id="editBtn" class="btn" type="button" hidden aria-hidden="true">Edit</button>
+              <button id="compareAskBtn" class="btn" type="button" hidden aria-hidden="true">Compare ask</button>
+              <button id="compareEditBtn" class="btn" type="button" hidden aria-hidden="true">Compare edit</button>
+            </div>
+          </div>
         </div>
         <div id="comparePicks" hidden aria-hidden="true"></div>
       </footer>

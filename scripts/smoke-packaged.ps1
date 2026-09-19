@@ -31,12 +31,12 @@ $ok = $false
 for ($i = 0; $i -lt 90; $i++) {
   try {
     $health = Invoke-RestMethod -Uri "$base/api/health" -TimeoutSec 2
-    if ($health.ok -and $health.version -eq "1.0.0") { $ok = $true; break }
+    if ($health.ok -and $health.version -eq "1.1.0") { $ok = $true; break }
   } catch {}
   if ($p.HasExited) { break }
   Start-Sleep -Milliseconds 500
 }
-if (-not $ok) { throw "Packaged Forge.exe did not report v1.0.0 on $base" }
+if (-not $ok) { throw "Packaged Forge.exe did not report v1.1.0 on $base" }
 
 if (-not $health.python.ok) { throw "packaged python finder failed: $($health.python.error)" }
 if (-not $health.monaco.ok) { throw "packaged monaco vendor missing" }

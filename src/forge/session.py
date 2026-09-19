@@ -48,10 +48,36 @@ def active_session(tier: str | None = None, model: str | None = None, *, purpose
     return resolved
 
 
-def build_messages(system: str, prompt: str, files: list[dict[str, str]]) -> list[dict[str, Any]]:
+MAX_HISTORY_TURNS = 24
+
+
+def normalize_history(history: list | None) -> list[dict[str, str]]:
+    if not history:
+        return []
+    out: list[dict[str, str]] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip()
+        content = str(item.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            out.append({"role": role, "content": content})
+    return out[-MAX_HISTORY_TURNS:]
+
+
+def build_messages(
+    system: str,
+    prompt: str,
+    files: list[dict[str, str]],
+    history: list | None = None,
+) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
+    for turn in normalize_history(history):
+        messages.append({"role": turn["role"], "content": turn["content"]})
     context = format_context(files)
     user = prompt if not context else f"{prompt}\n\n{context}"
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    messages.append({"role": "user", "content": user})
+    return messages
 
 
 def _emit_begin(sess: dict[str, Any], on_begin: BeginFn | None) -> None:
@@ -104,12 +130,13 @@ def _generate(
     *,
     workspace: Path | None = None,
     use_tools: bool = False,
+    history: list | None = None,
     on_begin: BeginFn | None = None,
     on_delta: DeltaFn | None = None,
     on_tool: ToolFn | None = None,
 ) -> dict[str, Any]:
     _emit_begin(sess, on_begin)
-    messages = build_messages(system, prompt, named)
+    messages = build_messages(system, prompt, named, history)
     traces: list[dict[str, Any]] = []
     tool_rounds = 0
     last: dict[str, Any] = {"text": "", "model": sess["model"], "done": True, "raw": {}, "tools": []}
@@ -179,13 +206,14 @@ def run_ask(
     tier: str | None = None,
     model: str | None = None,
     workspace: Path | None = None,
+    history: list | None = None,
     on_begin: BeginFn | None = None,
     on_delta: DeltaFn | None = None,
 ) -> dict:
     sess = active_session(tier, model, purpose="ask")
     root = workspace or workspace_path()
     named = read_files(root, files or []) if root and files else []
-    reply = _generate(sess, ASK_SYSTEM, prompt, named, on_begin=on_begin, on_delta=on_delta)
+    reply = _generate(sess, ASK_SYSTEM, prompt, named, history=history, on_begin=on_begin, on_delta=on_delta)
     return {
         "ok": True,
         "kind": "ask",
@@ -208,6 +236,7 @@ def run_edit(
     tier: str | None = None,
     model: str | None = None,
     workspace: Path | None = None,
+    history: list | None = None,
     on_begin: BeginFn | None = None,
     on_delta: DeltaFn | None = None,
     on_tool: ToolFn | None = None,
@@ -228,6 +257,7 @@ def run_edit(
         named,
         workspace=root,
         use_tools=True,
+        history=history,
         on_begin=on_begin,
         on_delta=on_delta,
         on_tool=on_tool,
