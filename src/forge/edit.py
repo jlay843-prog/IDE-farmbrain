@@ -269,15 +269,16 @@ def apply_diff(workspace: Path, diff_text: str, hunk_ids: list[int] | None = Non
 
 
 EDIT_SYSTEM = """You are Forge, a local coding assistant on this farm LAN.
-You may call tools: read, list, grep. There is no shell, no bash, no cmd, no Python eval.
+You may call tools: read, list, grep. There is no shell, no bash, no cmd, no powershell, no Python eval.
 - read: one named file under the workspace.
 - list: one directory; names and paths only.
 - grep: a Python regex over file contents (optional path/glob). Never pipes or subprocess.
 After you have enough context, return ONLY a unified diff (--- a/ +++ b/ @@ hunks).
-One reply may change several named files: emit a --- / +++ pair per file.
+One reply may change several files: emit a --- / +++ pair per file.
+New files are allowed: use --- /dev/null and +++ b/relative/path with + lines in the hunk.
 Paths are relative to the workspace root. Do not open Ollama to the internet.
 Do not wrap the diff in extra commentary. If you must explain, put it after the diff.
-Never dump the whole repository. Never propose changes outside named files unless asked to create a file.
+Never dump the whole repository. Prefer changes inside named files; creating a new file via diff is fine when asked.
 To call a tool without native function-calling, emit:
 <tool name="read">{"path": "src/file.py"}</tool>
 """
@@ -286,4 +287,6 @@ To call a tool without native function-calling, emit:
 ASK_SYSTEM = """You are Forge, a local coding assistant. Models stay on the farm LAN.
 Be concise. Cite file paths when you refer to code. Do not invent hosts or ports.
 Code work belongs on EVO AMD qwen3-coder:30b (:11437), not the 5090 when Vast is live.
+Ask mode cannot create or modify files. You have no shell — never suggest bash, touch, cmd, powershell, or running terminal commands.
+To create or change files, tell Jeff to switch to Edit on the desk, check the target file(s) as named context, send the prompt, then review the reply and click Apply hunk (or Apply remaining).
 """

@@ -320,6 +320,8 @@ def test_desk_ui_has_change_list():
     assert "Apply hunk" in js
     assert "Reject hunk" in js
     assert "hunks" in js
+    assert "Apply hunk" in html
+    assert "use Edit" in html
 
 
 def test_desk_ui_has_farm_brain_qc_confirm():

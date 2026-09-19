@@ -1,6 +1,14 @@
 from pathlib import Path
 
-from forge.edit import apply_diff, change_list, extract_diff, format_change_list, parse_unified_diff
+from forge.edit import (
+    ASK_SYSTEM,
+    EDIT_SYSTEM,
+    apply_diff,
+    change_list,
+    extract_diff,
+    format_change_list,
+    parse_unified_diff,
+)
 
 
 DIFF = """--- a/hello.py
@@ -29,6 +37,25 @@ MULTI = """--- a/hello.py
 @@ -1 +0,0 @@
 -bye
 """
+
+
+def test_ask_system_no_shell_file_guidance():
+    lower = ASK_SYSTEM.lower()
+    assert "ask mode cannot create or modify files" in lower
+    assert "never suggest bash" in lower
+    assert "touch" in lower
+    assert "powershell" in lower
+    assert "apply hunk" in lower
+    assert "edit on the desk" in lower
+
+
+def test_edit_system_new_files_and_no_shell():
+    lower = EDIT_SYSTEM.lower()
+    assert "no shell" in lower
+    assert "powershell" in lower
+    assert "/dev/null" in EDIT_SYSTEM
+    assert "new files are allowed" in lower
+    assert "unified diff" in lower
 
 
 def test_extract_diff_from_fence():
