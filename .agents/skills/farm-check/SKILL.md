@@ -22,9 +22,10 @@ You are a **low-reasoning** local coder. **Do not invent farm status.**
 |-----------|-----|
 | status / what's up / farm check / `/farm-status` | `forge check all` |
 | LLM / models warm / Empero / coder | `forge check llm` |
-| temps / thermal / BC-250 hot | `forge check temps` |
+| temps / thermal / 5070 / 5090 / 5950X / BC-250 | `forge check temps` |
 | VPN / Meshnet / tunnels / can I reach ARIA | `forge check vpn` |
 | apps / AI-PM / ontology / blender | `forge check apps` |
+| Ray / ray head / GCS / dashboard :8265 | `forge check ray` |
 | dashboard / fleet only | `forge check farm` |
 | what checks exist | `forge check list` |
 
@@ -44,4 +45,5 @@ forge recipe run farm-status
 forge recipe run farm-llm
 forge recipe run farm-temps
 forge recipe run farm-vpn
+forge recipe run farm-ray
 ```

@@ -69,6 +69,13 @@ RECIPES = [
         "command": "forge check vpn",
         "prompt": "Run exactly: forge check vpn — paste the board only.",
     },
+    {
+        "id": "farm-ray",
+        "label": "Ray head",
+        "kind": "shell",
+        "command": "forge check ray",
+        "prompt": "Run exactly: forge check ray — paste the board only.",
+    },
 ]
 
 

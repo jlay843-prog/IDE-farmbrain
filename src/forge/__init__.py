@@ -1,3 +1,3 @@
 """Forge — local Qwen coding desk for the farm mesh."""
 
-__version__ = "1.3.3"
+__version__ = "1.3.4"

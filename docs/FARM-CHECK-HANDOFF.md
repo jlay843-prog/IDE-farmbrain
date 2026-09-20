@@ -17,10 +17,15 @@ Rigid status boards for Lone Tree Acres (LAN / Meshnet).
 | `forge check list` | List check ids |
 | `forge check farm` | Farm Brain `http://192.168.68.103:5000/health` + fleet online count |
 | `forge check llm` | CUDA `:11434` warm `qwen3.8:27b-q4_K_M`; AMD `:11437` warm Empero + coder; **Empero must not be on CUDA** |
-| `forge check temps` | Farm Brain compute dials / BC-250 thermals |
-| `forge check apps` | HTTP: dashboard, ARIA UI/API, AI-PM `:5080`, ontology `:8000`, Lumen, Speaches, Academy, Ray `:8265`, Blender MCP `:9876`, tower Ollama |
+| `forge check temps` | **EVO 5070 Ti** + EVO CPU; **tower RTX 5090** + **5950X**; BC-250 dials |
+| `forge check apps` | HTTP (html/json): dashboard, ARIA UI/API, AI-PM, ontology, Lumen, Speaches, Academy, Ray; **TCP** Blender MCP `:9876`; tower Ollama |
+
+**Probe gotchas (fixed 2026-09-19):**
+- ARIA UI (`vite preview :5173`) returns **404** if `Accept: application/json` — check uses `Accept: */*` for HTML apps.
+- Blender MCP is a **raw TCP** listener on EVO `:9876`, not HTTP — check uses socket connect.
 | `forge check vpn` | Same as farm+apps (practical Meshnet test = reach `.103`) |
-| `forge check all` | farm + llm + temps + apps |
+| `forge check ray` | Ray head: GCS `:6379` TCP, dashboard `:8265`, jobs API, `ray_head_ok` / BC-250 worker modes |
+| `forge check all` | farm + llm + temps + apps + ray |
 | `forge check <id> --json` | Same payload as JSON |
 
 **Board format (paste as-is):**
@@ -41,7 +46,7 @@ INSTRUCTION: Report these lines only. Do not invent status.
 |------|------|
 | `src/forge/checks.py` | **New** — canned probes + `format_board()` |
 | `src/forge/cli.py` | **Updated** — `cmd_check`, `forge check` parser; recipe `shell` kind runs `forge check …` |
-| `src/forge/recipes.py` | **Updated** — recipes `farm-status`, `farm-llm`, `farm-temps`, `farm-vpn` |
+| `src/forge/recipes.py` | **Updated** — recipes `farm-status`, `farm-llm`, `farm-temps`, `farm-vpn`, `farm-ray` |
 | `src/forge/serve.py` | **Updated** — `GET /api/check?name=all` (desk loopback API) |
 | `tests/test_checks.py` | **New** — unit tests for list/unknown |
 | `.agents/skills/farm-check/SKILL.md` | **New** — instructions for local coder / Cursor agent |
@@ -56,6 +61,7 @@ forge recipe run farm-status
 forge recipe run farm-llm
 forge recipe run farm-temps
 forge recipe run farm-vpn
+forge recipe run farm-ray
 ```
 
 `shell` recipes call `forge check …` directly — they do **not** send a free-form prompt to the LLM for status invention.
@@ -155,10 +161,13 @@ If the packaged app shells out to `forge` on PATH, ensure Install-Forge-Shortcut
 ## Quick copy for Cursor chat
 
 ```
-Forge added canned farm checks. Use:
-  forge check all|farm|llm|temps|apps|vpn
-  forge recipe run farm-status
-  GET http://127.0.0.1:43180/api/check?name=all
+Forge canned farm checks (updated 2026-09-19). Use:
+  forge check all|farm|llm|temps|apps|vpn|ray
+  forge recipe run farm-status|farm-llm|farm-temps|farm-vpn|farm-ray
+  GET http://127.0.0.1:43180/api/check?name=ray
+temps = EVO 5070 Ti + CPU, tower 5090 + 5950X, BC-250 dials
+ray = GCS :6379 + dashboard :8265 + jobs API + worker modes
+apps: ARIA UI uses Accept */* (not JSON); Blender MCP is TCP :9876 not HTTP
 Skill: .agents/skills/farm-check/SKILL.md
 Docs: docs/FARM-CHECK-HANDOFF.md
 Local coder must paste the CHECK/RESULT/LINES board only — no invented status.

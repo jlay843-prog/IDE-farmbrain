@@ -4,6 +4,7 @@ Short trail for packaged builds Jeff can tell apart.
 
 | Version | Notes |
 |---------|--------|
+| **1.3.4** | Farm check **ray** in Easy dropdown + `forge check all`. **temps** = EVO 5070 Ti + CPU, tower 5090 + 5950X, BC-250 dials; 5090 idle/blocked-for-Vast → WARN not FAIL. **apps**: ARIA UI `Accept: */*`; Blender MCP `:9876` TCP. **llm** expect tags match live `/api/ps` (`qwen3.8:27b-q4_K_M`). Empero stays off CUDA; boards CHECK/RESULT/LINES only. |
 | **1.3.3** | Easy mode shows **Ask** (default, `qwen3.8:27b`) vs **Code** (`qwen3-coder:30b`) turn picker — no auto-hide. Canned **Farm check** dropdown runs `GET /api/check?name=` (farm, llm, temps, apps, vpn, all) and prints the CHECK/RESULT/LINES board (no LLM status invention). Grok-builder `checks.py`, recipes, `/api/check`, and farm-check skill ship in the package. |
 | **1.3.2** | Easy Edit no longer aborts on qwen3-coder `<parameter>` tool XML: outbound chat history is sanitized before Ollama, native Ollama tools are disabled (Forge markup loop only), parser errors retry without tools, desk shows a friendly message instead of raw XML errors. |
 | **1.3.1** | Easy/Ask system prompts: files are first-class (Accept/Apply writes locally); clarify CAN/CANNOT (no shell, no deploy/browser automation); Easy capability answers no longer claim “cannot touch the filesystem.” |

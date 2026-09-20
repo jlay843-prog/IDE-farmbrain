@@ -62,9 +62,10 @@ or `.\scripts\launch-forge.cmd`. Failures append to `%LOCALAPPDATA%\Forge\launch
 |---------|----------------|
 | `forge check farm` | Dashboard `/health` + fleet online |
 | `forge check llm` | CUDA 3.8 + AMD Empero + coder warm; Empero not on CUDA |
-| `forge check temps` | Compute dials / BC-250 thermals |
+| `forge check temps` | EVO 5070 Ti + CPU, tower 5090 + 5950X, BC-250 dials (5090 blocked-for-Vast → WARN) |
 | `forge check apps` | ARIA, AI-PM, ontology, Ray, Blender `:9876`, tower Ollama |
 | `forge check vpn` | Same as farm+apps (Meshnet = reach `.103` off-LAN) |
+| `forge check ray` | Ray head GCS `:6379` + dashboard `:8265` + jobs API + worker modes |
 | `forge check all` | Combined board |
 
 Skill for the desk agent: `.agents/skills/farm-check/SKILL.md`.
@@ -87,6 +88,7 @@ forge check llm
 forge check temps
 forge check apps
 forge check vpn
+forge check ray
 forge check all --json
 forge models -q
 forge use

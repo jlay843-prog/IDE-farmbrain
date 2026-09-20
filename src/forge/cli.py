@@ -610,13 +610,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "check",
-        help="canned farm PASS/FAIL boards (farm|llm|temps|apps|vpn|all) — for local coder",
+        help="canned farm PASS/FAIL boards (farm|llm|temps|apps|vpn|ray|all) — for local coder",
     )
     p.add_argument(
         "name",
         nargs="?",
         default="list",
-        help="farm|llm|temps|apps|vpn|all (default: list)",
+        help="farm|llm|temps|apps|vpn|ray|all (default: list)",
     )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_check)
