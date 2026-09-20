@@ -38,8 +38,8 @@ def default_state() -> dict[str, Any]:
     return {
         "workspace": "",
         "tier": DEFAULT_TIER,
-        "last_model": "qwen3-coder:30b",
-        "code_model": "qwen3-coder:30b",
+        "last_model": "qwen3-coder-next:latest",
+        "code_model": "qwen3-coder-next:latest",
         "chat_model": "qwen3.8:27b",
         "ui_mode": DEFAULT_UI_MODE,
         "easy_projects_parent": str(default_easy_projects_parent()),
@@ -112,7 +112,7 @@ def set_tier(tier: str, model: str | None = None) -> dict[str, Any]:
         elif tier == "chat":
             state["chat_model"] = model
     elif tier == "code":
-        state["last_model"] = state.get("code_model") or "qwen3-coder:30b"
+        state["last_model"] = state.get("code_model") or "qwen3-coder-next:latest"
     elif tier == "chat":
         state["last_model"] = state.get("chat_model") or "qwen3.8:27b"
     workspace = state.get("workspace") or ""
@@ -138,7 +138,7 @@ def upsert_project(
             "path": resolved,
             "name": Path(resolved).name,
             "tier": tier or state.get("tier") or DEFAULT_TIER,
-            "model": model or state.get("last_model") or "qwen3-coder:30b",
+            "model": model or state.get("last_model") or "qwen3-coder-next:latest",
         }
         projects.insert(0, row)
     else:

@@ -71,6 +71,6 @@ if ($userPath -notlike "*$Root*") {
   Write-Host "Added $Root to user PATH (new terminals pick this up)."
 }
 
-Write-Host "Double-click Forge. Code stays on EVO AMD :11437 (qwen3-coder:30b)."
+Write-Host "Double-click Forge. Code stays on EVO AMD :11437 (qwen3-coder-next:latest)."
 Write-Host "One command: $LaunchCmd"
 Write-Host "CLI: $cmd"

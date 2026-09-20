@@ -96,7 +96,7 @@ def test_picker_groups_live_tags_not_toml():
     assert tower["blocked"] is True
     assert [r["name"] for r in picker["groups"]["chat"]] == ["qwen3.8:27b"]
     assert picker["groups"]["burst"][0]["blocked"] is True
-    assert picker["defaults"]["code"] == "qwen3-coder:30b"
+    assert picker["defaults"]["code"] == "qwen3-coder-next:latest"
     assert picker["defaults"]["chat"] == "qwen3.8:27b"
 
 

@@ -32,6 +32,8 @@ def test_has_model_matches_qwen_tag_variants():
     assert _has_model(["qwen3.8:27b-q4_K_M"], "qwen3.8:27b-q4_K_M")
     assert _has_model(["qwen3.8:27b"], "qwen3.8:27b-q4_K_M")
     assert not _has_model(["qwen3-coder:30b"], "qwen3.8:27b-q4_K_M")
+    assert _has_model(["qwen3-coder-next:latest"], "qwen3-coder-next:latest")
+    assert not _has_model(["qwen3-coder:30b"], "qwen3-coder-next:latest")
 
 
 def test_tower_5090_vast_is_warn_not_fail():

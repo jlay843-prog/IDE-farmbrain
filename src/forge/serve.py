@@ -30,6 +30,7 @@ from forge.checks import format_board, run_check
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
 from forge.easy import classify_easy_prompt
+from forge.helpers import helper_catalog, run_helpers
 from forge.llm import ollama_tool_xml_error
 from forge.project import create_project, sanitize_project_name
 from forge.session import SessionError, run_ask, run_edit
@@ -127,8 +128,11 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 "vault": vault_info(),
                 "handoff": handoff_snapshot(),
                 "term": term_snapshot(),
+                "helpers": helper_catalog(),
             }
         )
+    if path == "/api/helpers":
+        return _json_bytes({"ok": True, "helpers": helper_catalog()})
     if path == "/api/log":
         try:
             limit = int((query.get("limit") or ["80"])[0])
@@ -202,6 +206,9 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
             model=body.get("model"),
             history=body.get("history"),
         )
+        helpers = [h for h in (body.get("helpers") or []) if h]
+        if helpers:
+            result["helpers"] = run_helpers(helpers, result, body.get("prompt") or "", body.get("files") or [])
         log_turn("edit", result, body.get("prompt") or "")
         return _json_bytes(result)
     if path == "/api/apply" and method == "POST":
@@ -222,7 +229,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes(load_state())
     if path == "/api/projects" and method == "POST":
         return _json_bytes(
-            assign_project(body["path"], tier=body.get("tier") or "code", model=body.get("model") or "qwen3-coder:30b")
+            assign_project(body["path"], tier=body.get("tier") or "code", model=body.get("model") or "qwen3-coder-next:latest")
         )
     if path in {"/api/git", "/api/git/status"}:
         root = workspace_path()
@@ -432,6 +439,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
             if easy_intent:
                 result = {**result, "intent": easy_intent, "easy": True}
+            helpers = [h for h in (body.get("helpers") or []) if h]
+            if routed == "edit" and helpers:
+                result["helpers"] = run_helpers(helpers, result, prompt, files)
             log_turn(routed if kind == "easy" else kind, result, prompt)
             self._write_sse({"done": True, **result})
         except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:

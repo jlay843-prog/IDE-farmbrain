@@ -26,6 +26,7 @@ from forge.probe import (
 )
 from forge.recipes import RECIPES, get_recipe
 from forge.compare import run_compare
+from forge.helpers import run_helpers
 from forge.git import commit as git_commit
 from forge.git import diff_for as git_diff
 from forge.git import snapshot as git_snapshot
@@ -183,7 +184,7 @@ def _pick_model(tier_filter: str | None) -> int:
         out("no live models from /api/tags", err=True)
         return 1
     if not sys.stdin.isatty():
-        out("not a TTY — pick with: forge use code --model qwen3-coder:30b")
+        out("not a TTY — pick with: forge use code --model qwen3-coder-next:latest")
         out("                 or: forge use chat --model qwen3.8:27b")
         return 0
     raw = input("Pick a model number: ").strip()
@@ -340,6 +341,13 @@ def cmd_edit(args: argparse.Namespace) -> int:
     if result.get("protected"):
         out("")
         out(PROTECTED_HINT)
+    helpers = [h for h in (getattr(args, "helper", None) or []) if h]
+    if helpers:
+        boards = run_helpers(helpers, result, args.prompt, args.file)
+        result["helpers"] = boards
+        for board in boards:
+            out("")
+            out(format_board(board))
     hunk_ids = list(args.hunk) if getattr(args, "hunk", None) else None
     if hunk_ids is None and not args.apply and not args.yes:
         if not sys.stdin.isatty():
@@ -610,13 +618,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "check",
-        help="canned farm PASS/FAIL boards (farm|llm|temps|apps|vpn|ray|all) — for local coder",
+        help="canned farm PASS/FAIL boards (farm|llm|temps|apps|cams|vpn|ray|all) — for local coder",
     )
     p.add_argument(
         "name",
         nargs="?",
         default="list",
-        help="farm|llm|temps|apps|vpn|ray|all (default: list)",
+        help="farm|llm|temps|apps|cams|vpn|ray|all (default: list)",
     )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_check)
@@ -658,9 +666,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-y", "--yes", action="store_true")
     p.add_argument("--hunk", action="append", type=int, default=[], help="apply only these hunk ids (repeatable)")
     p.add_argument("--i-understand-qc", dest="i_understand_qc", action="store_true")
+    p.add_argument(
+        "--helper",
+        action="append",
+        default=[],
+        choices=["review", "check"],
+        help="optional sequential helper after diff (review=Empero; check=5090 flash)",
+    )
     p.set_defaults(func=cmd_edit)
 
-    p = sub.add_parser("compare", help="run ask/edit on up to 3 live models; AMD 30B judges")
+    p = sub.add_parser("compare", help="run ask/edit on up to 3 live models; AMD coder judges")
     p.add_argument("kind", choices=["ask", "edit"])
     p.add_argument("prompt")
     p.add_argument("--file", action="append", default=[])

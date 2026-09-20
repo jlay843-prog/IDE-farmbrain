@@ -432,7 +432,7 @@ def models_snapshot() -> dict[str, Any]:
 
 TALK_SKIP = ("embed", "nomic", "rerank", "whisper", "tts", "clip", "moondream")
 PICKER_DEFAULTS = {
-    "code": "qwen3-coder:30b",
+    "code": "qwen3-coder-next:latest",
     "chat": "qwen3.8:27b",
     "burst": "aria-qwen38:27b",
 }

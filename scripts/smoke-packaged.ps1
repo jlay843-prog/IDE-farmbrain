@@ -15,8 +15,8 @@ New-Item -ItemType Directory -Force -Path $data | Out-Null
 @{
   workspace = $Root
   tier = "code"
-  last_model = "qwen3-coder:30b"
-  code_model = "qwen3-coder:30b"
+  last_model = "qwen3-coder-next:latest"
+  code_model = "qwen3-coder-next:latest"
   chat_model = "qwen3.8:27b"
   projects = @()
 } | ConvertTo-Json | Set-Content -Path (Join-Path $data "state.json") -Encoding utf8

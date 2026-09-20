@@ -1,7 +1,7 @@
 ---
 name: farm-check
 description: >
-  Canned Lone Tree Acres farm status boards for Forge / local qwen3-coder:30b.
+  Canned Lone Tree Acres farm status boards for Forge / local qwen3-coder-next.
   Use when Jeff asks status, VPN, temps, LLM warm, tunnels, farm OS health,
   or types /farm-status /farm-llm /farm-temps /farm-vpn /farm-apps.
 ---
@@ -25,6 +25,7 @@ You are a **low-reasoning** local coder. **Do not invent farm status.**
 | temps / thermal / 5070 / 5090 / 5950X / BC-250 | `forge check temps` |
 | VPN / Meshnet / tunnels / can I reach ARIA | `forge check vpn` |
 | apps / AI-PM / ontology / blender | `forge check apps` |
+| flock / cams / nest / chicken run | `forge check cams` |
 | Ray / ray head / GCS / dashboard :8265 | `forge check ray` |
 | dashboard / fleet only | `forge check farm` |
 | what checks exist | `forge check list` |
@@ -34,7 +35,7 @@ JSON (for tools): `forge check all --json`
 ## Expected layout (do not "fix" by moving models)
 
 - CUDA `:11434` = `qwen3.8:27b-q4_K_M` (chat / AI-PM)
-- AMD `:11437` = `empero-35b-a3b:q4km` + `qwen3-coder:30b`
+- AMD `:11437` = `empero-35b-a3b:q4km` + `qwen3-coder-next:latest`
 - Empero must **never** load on the 5070 Ti
 
 ## Recipes
@@ -46,4 +47,5 @@ forge recipe run farm-llm
 forge recipe run farm-temps
 forge recipe run farm-vpn
 forge recipe run farm-ray
+forge recipe run farm-cams
 ```

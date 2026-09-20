@@ -35,7 +35,7 @@ from forge.probe import farm_health, farm_json, probe_backend, ray_jobs_snapshot
 # Expected warm models (update when farm layout changes)
 EXPECT_CUDA = "qwen3.8:27b-q4_K_M"
 EXPECT_AMD_HARD = "empero-35b-a3b:q4km"
-EXPECT_AMD_CODER = "qwen3-coder:30b"
+EXPECT_AMD_CODER = "qwen3-coder-next:latest"
 
 # kind: json = API (Accept application/json); html = web UI (Accept */*); tcp = raw port
 APP_PROBES: list[tuple[str, str, str, str]] = [
@@ -108,7 +108,11 @@ def _has_model(running: list[str], expect: str) -> bool:
                 if "empero" in exp:
                     return "empero" in n
                 if "coder" in exp:
-                    return "coder" in n and "30b" in n
+                    if "next" in exp:
+                        return "coder" in n and "next" in n
+                    if "30b" in exp:
+                        return "coder" in n and "30b" in n
+                    return "coder" in n
                 return True
     return False
 
@@ -541,6 +545,120 @@ def check_vpn() -> dict[str, Any]:
     return _board("vpn", lines, note="If FAIL from off-farm, Meshnet/VPN is down or host offline")
 
 
+SOLFORGE_PUBLIC = "https://solforge.lonetreeacres.com"
+# Public flock cams — prefer SolForge /api/cam/* (go2rtc). Legacy /cam-dvr HLS is flaky.
+FLOCK_CAMS: list[tuple[str, str]] = [
+    ("nest-a", "Coop Cam"),
+    ("run-b", "Chicken Run"),
+]
+
+
+def _http_get_bytes(
+    url: str, *, timeout: float = 8.0, max_read: int = 65536, headers: dict[str, str] | None = None
+) -> tuple[int, str, bytes]:
+    """GET up to max_read bytes then close (safe for streaming MP4)."""
+    hdrs = {"Accept": "*/*", "User-Agent": "forge-check-cams/1.0"}
+    if headers:
+        hdrs.update(headers)
+    req = urllib.request.Request(url, headers=hdrs, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip()
+            raw = resp.read(max_read)
+            return resp.status, ctype, raw
+    except urllib.error.HTTPError as exc:
+        raw = exc.read(512) if exc.fp else b""
+        ctype = (exc.headers.get("Content-Type") if exc.headers else None) or ""
+        return exc.code, str(ctype).split(";")[0].strip(), raw
+    except Exception as exc:  # noqa: BLE001
+        return 0, "", str(exc).encode("utf-8", errors="replace")[:200]
+
+
+def _probe_flock_snap(src: str) -> dict[str, str]:
+    url = f"{SOLFORGE_PUBLIC}/api/cam/snap?src={src}"
+    code, ctype, raw = _http_get_bytes(url, timeout=12.0, max_read=8192)
+    ok = code == 200 and ("image" in ctype or raw[:3] == b"\xff\xd8\xff") and len(raw) >= 500
+    detail = f"http={code} ctype={ctype or '?'} bytes≥{len(raw)}"
+    if code == 0:
+        detail = raw.decode("utf-8", errors="replace")[:80]
+    return _line(ok, f"snap_{src}", detail)
+
+
+def _probe_flock_live(src: str) -> dict[str, str]:
+    """Only read the first chunk — do not download the whole live MP4."""
+    url = f"{SOLFORGE_PUBLIC}/api/cam/live?src={src}"
+    code, ctype, raw = _http_get_bytes(
+        url,
+        timeout=10.0,
+        max_read=4096,
+        headers={"Range": "bytes=0-4095"},
+    )
+    # 200 or 206 Partial Content both fine for live
+    ok = code in (200, 206) and ("video" in ctype or "mp4" in ctype or "octet" in ctype)
+    if not ok and code in (200, 206) and len(raw) >= 8:
+        # Some proxies omit content-type; accept non-empty binary
+        ok = True
+    detail = f"http={code} ctype={ctype or '?'} chunk={len(raw)}"
+    if code == 0:
+        detail = raw.decode("utf-8", errors="replace")[:80]
+        ok = False
+    return _line(ok if code else False, f"live_{src}", detail)
+
+
+def _probe_flock_dvr(src: str) -> dict[str, str]:
+    """WARN if playlist OK but first segment 404 — known failure mode (retire/fix later)."""
+    playlist = f"{SOLFORGE_PUBLIC}/cam-dvr/{src}/index.m3u8"
+    code, ctype, raw = _http_get_bytes(playlist, timeout=8.0, max_read=8192)
+    text = raw.decode("utf-8", errors="replace")
+    if code != 200 or "#EXTM3U" not in text:
+        return _line(None, f"dvr_{src}", f"WARN playlist http={code} (HLS unused while mp4 default)")
+    seg = None
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and ".ts" in line:
+            seg = line
+            break
+    if not seg:
+        return _line(None, f"dvr_{src}", "WARN playlist has no .ts lines")
+    if seg.startswith("http"):
+        seg_url = seg
+    else:
+        base = playlist.rsplit("/", 1)[0]
+        seg_url = f"{base}/{seg.lstrip('./')}"
+    scode, _, _ = _http_get_bytes(seg_url, timeout=6.0, max_read=512)
+    if scode == 200:
+        return _line(True, f"dvr_{src}", f"playlist+seg ok seg_http={scode}")
+    # Not a hard FAIL while product path is /api/cam — pin for later
+    return _line(
+        None,
+        f"dvr_{src}",
+        f"WARN playlist=200 seg_http={scode} — retire/fix DVR later (see PIN-FLOCK-DVR)",
+    )
+
+
+def check_cams() -> dict[str, Any]:
+    """Flock Yeah public cams — snap + live via SolForge /api/cam; DVR as WARN-only."""
+    lines: list[dict[str, str]] = []
+    # hens page
+    page_code, _ = _http_code(f"{SOLFORGE_PUBLIC}/flock/hens.html", kind="html", timeout=8.0)
+    lines.append(_line(page_code == 200, "flock_hens", f"hens.html http={page_code}"))
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = []
+        for src, _label in FLOCK_CAMS:
+            futures.append(pool.submit(_probe_flock_snap, src))
+            futures.append(pool.submit(_probe_flock_live, src))
+            futures.append(pool.submit(_probe_flock_dvr, src))
+        for fut in futures:
+            lines.append(fut.result())
+
+    return _board(
+        "cams",
+        lines,
+        note="Product path=/api/cam/snap|live; /cam-dvr HLS is legacy (WARN if segs 404)",
+    )
+
+
 def check_ray() -> dict[str, Any]:
     """Ray head on EVO: GCS :6379, dashboard :8265, jobs API, compute modes."""
     lines: list[dict[str, str]] = []
@@ -625,12 +743,12 @@ def check_ray() -> dict[str, Any]:
 
 
 def check_all() -> dict[str, Any]:
-    parts = [check_farm(), check_llm(), check_temps(), check_apps(), check_ray()]
+    parts = [check_farm(), check_llm(), check_temps(), check_apps(), check_cams(), check_ray()]
     lines: list[dict[str, str]] = []
     for part in parts:
         lines.append(_line(None, f"---{part['check']}---", part["result"]))
         lines.extend(part["lines"])
-    board = _board("all", lines, note="Combined farm+llm+temps+apps+ray")
+    board = _board("all", lines, note="Combined farm+llm+temps+apps+cams+ray")
     # overall: fail if any subcheck failed
     if any(p["result"] == "FAIL" for p in parts):
         board["result"] = "FAIL"
@@ -650,6 +768,8 @@ CHECKS: dict[str, Callable[[], dict[str, Any]]] = {
     "apps": check_apps,
     "vpn": check_vpn,
     "tunnels": check_vpn,
+    "cams": check_cams,
+    "flock": check_cams,
     "ray": check_ray,
     "all": check_all,
     "status": check_all,
@@ -662,9 +782,10 @@ def list_checks() -> list[dict[str, str]]:
         {"id": "llm", "help": "CUDA qwen3.8 + AMD Empero + coder warm; Empero not on CUDA"},
         {"id": "temps", "help": "EVO 5070 Ti + CPU, tower 5090 + 5950X, BC-250 dials"},
         {"id": "apps", "help": "HTTP probes: dashboard, ARIA, AI-PM, ontology, Ray UI, Blender, tower"},
+        {"id": "cams", "help": "Flock Yeah nest-a/run-b snap+live (/api/cam); DVR HLS WARN-only"},
         {"id": "vpn", "help": "Same as apps+farm — use off-farm to verify Meshnet tunnels"},
         {"id": "ray", "help": "Ray head GCS :6379 + dashboard + jobs API + worker modes"},
-        {"id": "all", "help": "farm + llm + temps + apps + ray"},
+        {"id": "all", "help": "farm + llm + temps + apps + cams + ray"},
     ]
 
 

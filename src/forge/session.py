@@ -55,7 +55,7 @@ def active_session(tier: str | None = None, model: str | None = None, *, purpose
         chosen_model = model or state.get("chat_model") or "qwen3.8:27b"
     elif purpose == "edit":
         chosen_tier = tier or "code"
-        chosen_model = model or state.get("code_model") or "qwen3-coder:30b"
+        chosen_model = model or state.get("code_model") or "qwen3-coder-next:latest"
     else:
         chosen_tier = tier or state.get("tier") or "code"
         chosen_model = model or (None if tier else state.get("last_model"))

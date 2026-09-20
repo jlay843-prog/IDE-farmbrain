@@ -1,4 +1,4 @@
-"""Run the same ask/edit on up to 3 live models; AMD qwen3-coder:30b judges."""
+"""Run the same ask/edit on up to 3 live models; AMD coder-next judges."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from forge.session import SessionError, active_session, run_ask, run_edit
 from forge.state import load_state
 
 JUDGE_TIER = "code"
-JUDGE_MODEL = "qwen3-coder:30b"
+JUDGE_MODEL = "qwen3-coder-next:latest"
 MAX_CANDIDATES = 3
 _WINNER_RE = re.compile(r"winner\s*[:=]\s*(\d+)", re.I)
 _REASON_RE = re.compile(r"reason\s*[:=]\s*(.+)", re.I)
@@ -66,7 +66,7 @@ def default_candidates(kind: str, *, picker: dict[str, Any] | None = None, state
     picker = picker or picker_snapshot()
     state = state if state is not None else load_state()
     seeds = [
-        ("code", state.get("code_model") or "qwen3-coder:30b"),
+        ("code", state.get("code_model") or "qwen3-coder-next:latest"),
         ("chat", state.get("chat_model") or "qwen3.8:27b"),
     ]
     if kind == "ask":

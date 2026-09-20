@@ -2,7 +2,7 @@
 
 Local Qwen coding desk for this farm LAN. **CLI is the product.** The Windows window is a thin visual shell around it.
 
-Code stays on **EVO AMD `:11437` / `qwen3-coder:30b`**. Chat can use **EVO CUDA `:11434` / `qwen3.8:27b`**. The tower 5090 is burst-only and **blocked while Vast is live**. Do not port-forward Ollama.
+Code stays on **EVO AMD `:11437` / `qwen3-coder-next:latest`**. Chat can use **EVO CUDA `:11434` / `qwen3.8:27b`**. The tower 5090 is burst-only and **blocked while Vast is live**. Do not port-forward Ollama. Optional **Helpers** after Edit: **Review** (Empero on AMD) and **Check** (5090 flash when pulled).
 
 Sibling to Aether, Lumen, Farm Brain, and AI-PM — not inside `lumen-lab-twin`.
 
@@ -56,7 +56,7 @@ or `.\scripts\launch-forge.cmd`. Failures append to `%LOCALAPPDATA%\Forge\launch
 
 ## Canned farm checks (for local coder)
 
-`qwen3-coder:30b` should **not invent** farm status. Use rigid boards:
+The local coder should **not invent** farm status. Use rigid boards:
 
 | Command | What it probes |
 |---------|----------------|
@@ -89,6 +89,7 @@ forge check temps
 forge check apps
 forge check vpn
 forge check ray
+forge check cams
 forge check all --json
 forge models -q
 forge use
@@ -96,6 +97,7 @@ forge use chat --model qwen3.8:27b
 forge open C:\Users\jlay\Grok\forge
 forge ask "What does cli.py do?" --file src/forge/cli.py
 forge edit "Add a --quiet flag to status" --file src/forge/cli.py
+forge edit "Add a --quiet flag to status" --file src/forge/cli.py --helper review
 forge compare ask "What does cli.py do?" --file src/forge/cli.py
 forge compare edit "Add a --quiet flag" --file src/forge/cli.py --model qwen3-coder:30b --model qwen3.8:27b
 forge recipe list
@@ -115,7 +117,7 @@ forge telegram --text "/forge status"
 
 `forge ask` uses the **Ask** (EVO CUDA) model. `forge edit` uses the **Code** (EVO AMD) model. `forge use` with no args lists live `/api/tags` and, on a TTY, lets you pick a number. `forge models --pick` is the same picker. Burst/5090 stays blocked while Vast is live.
 
-`forge compare ask|edit` runs the same prompt on up to 3 live models, then **qwen3-coder:30b** on EVO AMD `:11437` picks a winner. Desk: check models under the composer, then **Compare ask** / **Compare edit**. The 30B pick is the WINNER line (not applied). farm-brain Apply still needs the desk QC confirm (CLI: `--i-understand-qc`).
+`forge compare ask|edit` runs the same prompt on up to 3 live models, then **qwen3-coder-next:latest** on EVO AMD `:11437` picks a winner. Desk: check models under the composer, then **Compare ask** / **Compare edit**. The winner line is shown (not applied). **Helpers** (Review/Check) are separate from Compare — optional ticks under Go after Edit. farm-brain Apply still needs the desk QC confirm (CLI: `--i-understand-qc`).
 
 Bare `forge` prints the pinned session and help. `forge health` checks the local Python finder and Monaco vendor without starting the desk. `forge log` tails `%LOCALAPPDATA%\Forge\sessions.jsonl` (newest first; `--json` for scripts). Turns are appended from **both** the CLI and the desk (Ask / Edit / recipes). The desk **Log** tab lists the same file.
 
@@ -131,7 +133,7 @@ Bare `forge` prints the pinned session and help. `forge health` checks the local
 
 | Tier | Host | GPU | Default model |
 |---|---|---|---|
-| `code` | `192.168.68.103:11437` | Strix Halo GTT | `qwen3-coder:30b` |
+| `code` | `192.168.68.103:11437` | Strix Halo GTT | `qwen3-coder-next:latest` |
 | `chat` | `192.168.68.103:11434` | RTX 5070 Ti | `qwen3.8:27b` |
 | `burst` | `192.168.68.106:11434` | RTX 5090 | `aria-qwen38:27b` |
 

@@ -24,8 +24,9 @@ Rigid status boards for Lone Tree Acres (LAN / Meshnet).
 - ARIA UI (`vite preview :5173`) returns **404** if `Accept: application/json` — check uses `Accept: */*` for HTML apps.
 - Blender MCP is a **raw TCP** listener on EVO `:9876`, not HTTP — check uses socket connect.
 | `forge check vpn` | Same as farm+apps (practical Meshnet test = reach `.103`) |
+| `forge check cams` | Flock Yeah: hens.html + `/api/cam/snap|live` for nest-a/run-b; `/cam-dvr` HLS WARN-only |
 | `forge check ray` | Ray head: GCS `:6379` TCP, dashboard `:8265`, jobs API, `ray_head_ok` / BC-250 worker modes |
-| `forge check all` | farm + llm + temps + apps + ray |
+| `forge check all` | farm + llm + temps + apps + cams + ray |
 | `forge check <id> --json` | Same payload as JSON |
 
 **Board format (paste as-is):**
@@ -84,7 +85,7 @@ Uses same `run_check()` as CLI. Farm probes send `X-Farm-Local-Key` from `C:\Use
 | Backend | URL | Keep warm |
 |---------|-----|-----------|
 | CUDA (5070 Ti 16GB) | `http://192.168.68.103:11434` | `qwen3.8:27b-q4_K_M` (chat / AI-PM) |
-| AMD GTT (unified) | `http://192.168.68.103:11437` | `empero-35b-a3b:q4km` + `qwen3-coder:30b` |
+| AMD GTT (unified) | `http://192.168.68.103:11437` | `empero-35b-a3b:q4km` + `qwen3-coder-next:latest` |
 
 **Empero does not fit the 16GB 5070 Ti.** If `forge check llm` reports Empero on CUDA → FAIL.
 
@@ -162,12 +163,14 @@ If the packaged app shells out to `forge` on PATH, ensure Install-Forge-Shortcut
 
 ```
 Forge canned farm checks (updated 2026-09-19). Use:
-  forge check all|farm|llm|temps|apps|vpn|ray
-  forge recipe run farm-status|farm-llm|farm-temps|farm-vpn|farm-ray
-  GET http://127.0.0.1:43180/api/check?name=ray
+  forge check all|farm|llm|temps|apps|cams|vpn|ray
+  forge recipe run farm-status|farm-llm|farm-temps|farm-vpn|farm-ray|farm-cams
+  GET http://127.0.0.1:43180/api/check?name=cams
 temps = EVO 5070 Ti + CPU, tower 5090 + 5950X, BC-250 dials
+cams = Flock Yeah /api/cam/snap|live (DVR HLS WARN if segs 404)
 ray = GCS :6379 + dashboard :8265 + jobs API + worker modes
 apps: ARIA UI uses Accept */* (not JSON); Blender MCP is TCP :9876 not HTTP
+PIN later this week: docs/PIN-FLOCK-DVR-20260920.md (fix or retire cam-dvr)
 Skill: .agents/skills/farm-check/SKILL.md
 Docs: docs/FARM-CHECK-HANDOFF.md
 Local coder must paste the CHECK/RESULT/LINES board only — no invented status.

@@ -76,6 +76,13 @@ RECIPES = [
         "command": "forge check ray",
         "prompt": "Run exactly: forge check ray — paste the board only.",
     },
+    {
+        "id": "farm-cams",
+        "label": "Flock Yeah cams",
+        "kind": "shell",
+        "command": "forge check cams",
+        "prompt": "Run exactly: forge check cams — paste the board only.",
+    },
 ]
 
 

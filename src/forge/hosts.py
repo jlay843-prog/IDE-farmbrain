@@ -60,7 +60,7 @@ BACKENDS: dict[str, Backend] = {
         host_id="evo",
         gpu="Strix Halo GTT",
         base=f"http://{EVO}:11437",
-        default_model="qwen3-coder:30b",
+        default_model="qwen3-coder-next:latest",
         role="code",
     ),
     "burst": Backend(

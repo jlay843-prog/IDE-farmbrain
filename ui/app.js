@@ -2,7 +2,8 @@ const $ = (sel) => document.querySelector(sel);
 const MAX_CONVERSATION_TURNS = 12;
 const MAX_CONVERSATION_CHARS = 24000;
 const state = {
-  session: { workspace: "", tier: "code", last_model: "qwen3-coder:30b", projects: [] },
+  session: { workspace: "", tier: "code", last_model: "qwen3-coder-next:latest", projects: [] },
+  helpers: [],
   files: [],
   tree: { cwd: "", parent: null, crumbs: [], entries: [] },
   cwd: "",
@@ -366,8 +367,54 @@ function pickerFromStatus(status) {
   return {
     vast_active: !!(status && status.vast_active),
     groups,
-    defaults: { code: "qwen3-coder:30b", chat: "qwen3.8:27b" },
+    defaults: { code: "qwen3-coder-next:latest", chat: "qwen3.8:27b" },
   };
+}
+
+function selectedHelpers() {
+  const out = [];
+  const review = $("#helperReview");
+  const check = $("#helperCheck");
+  if (review && review.checked) out.push("review");
+  if (check && check.checked && !check.disabled) out.push("check");
+  return out;
+}
+
+function renderHelpers(rows) {
+  state.helpers = rows || [];
+  const check = $("#helperCheck");
+  const checkLabel = $("#helperCheckLabel");
+  const slot = (rows || []).find((row) => row.id === "check");
+  if (check) {
+    const enabled = !!(slot && slot.enabled);
+    check.disabled = !enabled;
+    if (!enabled) check.checked = false;
+    if (checkLabel) {
+      checkLabel.title = slot && slot.message ? slot.message : "";
+      checkLabel.classList.toggle("helper-warn", !enabled);
+    }
+  }
+}
+
+function showHelperBoards(boards) {
+  for (const board of boards || []) {
+    const body = board.board || [board.result, ...(board.lines || []).map((L) => `${L.mark} ${L.label} ${L.detail}`)].join("\n");
+    addMessage("assistant", body, `helper ${board.helper || board.check || "review"} · ${board.result || "?"}`);
+  }
+}
+
+function syncHelpersVisibility() {
+  const bar = $("#helpersPick");
+  if (!bar) return;
+  let show = false;
+  if (isEasyMode()) {
+    const intent = ($("#easyIntent") && $("#easyIntent").value) || "ask";
+    show = intent === "code";
+  } else {
+    const mode = ($("#goMode") && $("#goMode").value) || "edit";
+    show = mode === "edit";
+  }
+  bar.hidden = !show;
 }
 
 function renderPicker(picker) {
@@ -376,7 +423,7 @@ function renderPicker(picker) {
   fillSelect(
     $("#codeModel"),
     groups.code || [],
-    state.session.code_model || defaults.code || "qwen3-coder:30b",
+    state.session.code_model || defaults.code || "qwen3-coder-next:latest",
     "No AMD code models"
   );
   fillSelect(
@@ -1590,6 +1637,8 @@ async function refreshAll() {
   const nextWs = (desk.state && desk.state.workspace) || desk.workspace || "";
   const wsChanged = prevWs !== nextWs;
   state.session = desk.state;
+  renderHelpers(desk.helpers || []);
+  syncHelpersVisibility();
   state.protected = !!desk.protected;
   state.protectedHint = desk.protected_hint || "";
   if (desk.log_path) state.logPath = desk.log_path;
@@ -1769,7 +1818,7 @@ async function sendEasy() {
   setThinkingBanner(
     bubble,
     useCode ? "Inspecting workspace…" : "Thinking…",
-    useCode ? "Code · qwen3-coder:30b" : "Ask · qwen3.8:27b"
+    useCode ? "Code · qwen3-coder-next:latest" : "Ask · qwen3.8:27b"
   );
   setBusy(true);
   let text = "";
@@ -1790,6 +1839,7 @@ async function sendEasy() {
         model: useCode
           ? ($("#codeModel") && $("#codeModel").value) || undefined
           : ($("#chatModel") && $("#chatModel").value) || undefined,
+        helpers: useCode ? selectedHelpers() : [],
       }),
     });
     if (!res.ok) {
@@ -1839,6 +1889,7 @@ async function sendEasy() {
       if (ev.done && ev.hunks) hunks = ev.hunks;
       if (ev.done && ev.intent) intent = ev.intent;
       if (ev.done && ev.model && metaEl) metaEl.textContent = `${intent} · ${ev.model}`;
+      if (ev.done && ev.helpers) showHelperBoards(ev.helpers);
     });
     if (bodyEl) bodyEl.textContent = text;
     if (intent === "edit" && changes && changes.length) {
@@ -1899,6 +1950,7 @@ async function send(kind) {
         history: boundedHistory(),
         tier: kind === "edit" ? "code" : "chat",
         model: kind === "edit" ? $("#codeModel").value || undefined : $("#chatModel").value || undefined,
+        helpers: kind === "edit" ? selectedHelpers() : [],
       }),
     });
     if (!res.ok) {
@@ -1948,6 +2000,7 @@ async function send(kind) {
       if (ev.done && ev.model && metaEl) {
         metaEl.textContent = `${ev.model} · ${ev.backend || ""} · ${ev.gpu || ""}`;
       }
+      if (ev.done && ev.helpers) showHelperBoards(ev.helpers);
     });
     if (bodyEl) bodyEl.textContent = text;
     if (kind === "edit") renderDiff(text, changes, hunks);
@@ -2018,7 +2071,7 @@ async function sendCompare(kind) {
   if (promptEl) promptEl.value = "";
   addMessage("user", prompt, `compare ${kind} · ${models.map((m) => m.model).join(", ")}`);
   const bubble = addMessage("assistant", "", "compare");
-  setThinkingBanner(bubble, "Comparing models…", `${models.length} candidates · AMD 30B judge`);
+  setThinkingBanner(bubble, "Comparing models…", `${models.length} candidates · AMD coder judge`);
   setBusy(true);
   toast(`Comparing ${models.length} models; AMD 30B will judge…`);
   try {
@@ -2032,7 +2085,7 @@ async function sendCompare(kind) {
     addMessage(
       "assistant",
       `${judge.reason || ""}\n\n${data.text || ""}`,
-      `WINNER ${judge.winner} · ${judge.pick_model || data.model} · judged by ${judge.model || "qwen3-coder:30b"}`
+      `WINNER ${judge.winner} · ${judge.pick_model || data.model} · judged by ${judge.model || "qwen3-coder-next:latest"}`
     );
     for (const row of data.candidates || []) {
       addMessage(
@@ -2219,7 +2272,14 @@ function bind() {
   const goBtn = $("#goBtn");
   if (goBtn) goBtn.addEventListener("click", () => sendGo());
   const goMode = $("#goMode");
-  if (goMode) goMode.addEventListener("change", syncCompareModeVisibility);
+  if (goMode) {
+    goMode.addEventListener("change", () => {
+      syncCompareModeVisibility();
+      syncHelpersVisibility();
+    });
+  }
+  const easyIntent = $("#easyIntent");
+  if (easyIntent) easyIntent.addEventListener("change", syncHelpersVisibility);
   const compareSelect = $("#compareSelect");
   if (compareSelect) compareSelect.addEventListener("change", syncCompareFromSelect);
   $("#askBtn").addEventListener("click", () => send("ask"));
