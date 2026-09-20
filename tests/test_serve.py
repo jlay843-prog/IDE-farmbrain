@@ -263,6 +263,27 @@ def test_vault_search_endpoint(tmp_path, monkeypatch):
     assert "lumen" in desk["handoff"]
 
 
+def test_check_endpoint_returns_board(monkeypatch):
+    monkeypatch.setattr(
+        "forge.serve.run_check",
+        lambda name: {
+            "check": name,
+            "result": "PASS",
+            "passes": 1,
+            "fails": 0,
+            "warns": 0,
+            "lines": [{"mark": "PASS", "label": "demo", "detail": "ok"}],
+        },
+    )
+    status, payload, _ = handle_api("GET", "/api/check", {"name": ["llm"]}, {})
+    assert status == 200
+    data = json.loads(payload)
+    assert data["check"] == "llm"
+    assert data["result"] == "PASS"
+    assert "CHECK: llm" in data["board"]
+    assert "RESULT: PASS" in data["board"]
+
+
 def test_desk_error_message_hides_ollama_tool_xml_parser():
     err = RuntimeError("Ollama http://192.168.68.103:11437 returned error: expected element type <function> but have <parameter>")
     msg = desk_error_message(err)

@@ -181,7 +181,7 @@ function applyUiMode(mode) {
   if (promptEl) {
     promptEl.placeholder =
       chosen === "easy"
-        ? "Describe what you want — Enter to send. Forge creates or changes files; click Accept when ready."
+        ? "Ask for questions and planning (default). Switch to Code when you want a diff to Accept."
         : "Ask or Edit — Enter to send, Shift+Enter for newline. Check named files for Edit. Apply hunks on Diff.";
   }
   if (chosen === "advanced") {
@@ -968,14 +968,57 @@ async function ensureTerm() {
   }, 500);
 }
 
-function addMessage(role, text, meta = "") {
+function addMessage(role, text, meta = "", opts = {}) {
   const host = transcriptHost();
   const el = document.createElement("div");
-  el.className = `msg ${role}`;
-  el.innerHTML = `${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}<div class="body">${escapeHtml(text)}</div>`;
+  const extra = opts.mono ? " mono" : "";
+  const kind = opts.kind ? ` ${opts.kind}` : "";
+  el.className = `msg ${role}${kind}`;
+  el.innerHTML = `${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}<div class="body${extra}">${escapeHtml(text)}</div>`;
   if (host) host.appendChild(el);
   scrollTranscript();
   return el;
+}
+
+function formatCheckBoard(data) {
+  if (data && data.board) return String(data.board);
+  const rows = [
+    `CHECK: ${data.check || "?"}`,
+    `RESULT: ${data.result || "?"}`,
+    "LINES:",
+  ];
+  for (const line of data.lines || []) {
+    rows.push(`- ${line.mark || "?"} ${line.label || ""}: ${line.detail || ""}`);
+  }
+  if (data.note) rows.push(`NOTE: ${data.note}`);
+  rows.push(
+    `SUMMARY: ${data.passes || 0} pass, ${data.fails || 0} fail, ${data.warns || 0} warn`
+  );
+  rows.push("INSTRUCTION: Report these lines only. Do not invent status.");
+  return rows.join("\n");
+}
+
+async function runEasyFarmCheck() {
+  if (state.busy) return;
+  const pick = $("#easyFarmCheck");
+  const name = ((pick && pick.value) || "").trim();
+  if (!name) return toast("Pick a farm check first.");
+  addMessage("user", `forge check ${name}`, "farm check");
+  setBusy(true);
+  try {
+    const data = await api(`/api/check?name=${encodeURIComponent(name)}`);
+    const board = formatCheckBoard(data);
+    addMessage("assistant", board, `check ${name} · ${data.result || ""}`, {
+      mono: true,
+      kind: "check-board",
+    });
+    toast(`check ${name}: ${data.result || "done"}`);
+  } catch (err) {
+    addMessage("assistant", String(err.message || err), "check error", { kind: "check-board" });
+    toast(String(err.message || err));
+  } finally {
+    setBusy(false);
+  }
 }
 
 function setThinkingBanner(bubble, label, detail = "") {
@@ -1721,12 +1764,18 @@ async function sendEasy() {
   bubble.classList.add("streaming");
   const bodyEl = bubble.querySelector(".body");
   const metaEl = bubble.querySelector(".meta");
-  setThinkingBanner(bubble, "Thinking…", "routing ask vs create");
+  const intentPick = ($("#easyIntent") && $("#easyIntent").value) || "ask";
+  const useCode = intentPick === "code";
+  setThinkingBanner(
+    bubble,
+    useCode ? "Inspecting workspace…" : "Thinking…",
+    useCode ? "Code · qwen3-coder:30b" : "Ask · qwen3.8:27b"
+  );
   setBusy(true);
   let text = "";
   let changes = null;
   let hunks = null;
-  let intent = "edit";
+  let intent = useCode ? "edit" : "ask";
   let inspecting = false;
   try {
     const res = await fetch("/api/easy/stream", {
@@ -1734,10 +1783,13 @@ async function sendEasy() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt,
+        intent: intentPick,
         files: [],
         history: boundedHistory(),
-        tier: "code",
-        model: $("#codeModel").value || undefined,
+        tier: useCode ? "code" : "chat",
+        model: useCode
+          ? ($("#codeModel") && $("#codeModel").value) || undefined
+          : ($("#chatModel") && $("#chatModel").value) || undefined,
       }),
     });
     if (!res.ok) {
@@ -2136,6 +2188,12 @@ function bind() {
   if (easyOpenBtn) {
     easyOpenBtn.addEventListener("click", () => {
       openEasyFile().catch((err) => toast(String(err.message || err)));
+    });
+  }
+  const easyFarmCheckRun = $("#easyFarmCheckRun");
+  if (easyFarmCheckRun) {
+    easyFarmCheckRun.addEventListener("click", () => {
+      runEasyFarmCheck().catch((err) => toast(String(err.message || err)));
     });
   }
   $("#codeModel").addEventListener("change", async () => {

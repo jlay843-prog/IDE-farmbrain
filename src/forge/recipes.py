@@ -41,6 +41,34 @@ RECIPES = [
         "target": "coder",
         "prompt": "",
     },
+    {
+        "id": "farm-status",
+        "label": "Farm check all",
+        "kind": "shell",
+        "command": "forge check all",
+        "prompt": "Run exactly: forge check all — then paste the CHECK/RESULT/LINES board. Do not invent status.",
+    },
+    {
+        "id": "farm-llm",
+        "label": "LLM warm check",
+        "kind": "shell",
+        "command": "forge check llm",
+        "prompt": "Run exactly: forge check llm — paste the board only.",
+    },
+    {
+        "id": "farm-temps",
+        "label": "Temps / dials",
+        "kind": "shell",
+        "command": "forge check temps",
+        "prompt": "Run exactly: forge check temps — paste the board only.",
+    },
+    {
+        "id": "farm-vpn",
+        "label": "VPN / app tunnels",
+        "kind": "shell",
+        "command": "forge check vpn",
+        "prompt": "Run exactly: forge check vpn — paste the board only.",
+    },
 ]
 
 

@@ -26,6 +26,7 @@ from forge.hosts import LINKS
 from forge.launch import launch, link_catalog, open_path
 from forge.vault import search_vault, vault_info
 from forge.log import log_path, log_turn, read_turns
+from forge.checks import format_board, run_check
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
 from forge.easy import classify_easy_prompt
@@ -136,6 +137,11 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         return _json_bytes({"ok": True, "path": str(log_path()), "turns": read_turns(limit)})
     if path == "/api/status":
         return _json_bytes(status_snapshot())
+    if path == "/api/check":
+        name = (query.get("name") or ["all"])[0]
+        board = run_check(str(name))
+        board["board"] = format_board(board)
+        return _json_bytes(board)
     if path == "/api/models":
         return _json_bytes(models_snapshot())
     if path == "/api/mesh":
@@ -371,7 +377,16 @@ class Handler(BaseHTTPRequestHandler):
         files = body.get("files") or []
         history = body.get("history")
 
-        easy_intent = classify_easy_prompt(prompt) if kind == "easy" else None
+        if kind == "easy":
+            raw_intent = str(body.get("intent") or "").strip().lower()
+            if raw_intent in {"ask", "chat"}:
+                easy_intent = "ask"
+            elif raw_intent in {"code", "edit"}:
+                easy_intent = "edit"
+            else:
+                easy_intent = classify_easy_prompt(prompt)
+        else:
+            easy_intent = None
         routed = easy_intent or kind
 
         def on_begin(meta: dict[str, Any]) -> None:

@@ -736,6 +736,16 @@ pre.diff { margin: 0; font-family: var(--mono); font-size: 11px; white-space: pr
   font-size: 12px;
 }
 
+.easy-composer-bar {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 10px 0;
+}
+body.mode-easy .easy-composer-bar {
+  display: flex;
+}
 body.mode-easy .header-options,
 body.mode-easy .composer-top,
 body.mode-easy .side-tabs .btn[data-side="git"],
@@ -754,6 +764,15 @@ body.mode-easy #filePicks {
 }
 body.mode-easy .composer textarea {
   min-height: 72px;
+}
+.msg .body.mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  line-height: 1.35;
+}
+.msg.check-board .meta {
+  color: var(--brass);
 }
 
 @media (max-width: 900px) {

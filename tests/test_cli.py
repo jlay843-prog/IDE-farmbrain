@@ -546,7 +546,11 @@ def test_desk_ui_has_easy_advanced_toggle():
     assert "/api/reveal" in js
     assert "openEasyFile" in js
     assert "sendEasy" in js
+    assert 'id="easyIntent"' in html
+    assert 'id="easyFarmCheck"' in html
+    assert "runEasyFarmCheck" in js
     assert "isEasyMode" in js
     assert "mode-easy" in css
+    assert "easy-composer-bar" in css
     assert "Enter to send" in html
     assert ".thinking-banner" in css

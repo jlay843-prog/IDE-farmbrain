@@ -54,6 +54,21 @@ One command (installs Electron if needed, then opens the desk; Edge app window i
 
 or `.\scripts\launch-forge.cmd`. Failures append to `%LOCALAPPDATA%\Forge\launch.log`.
 
+## Canned farm checks (for local coder)
+
+`qwen3-coder:30b` should **not invent** farm status. Use rigid boards:
+
+| Command | What it probes |
+|---------|----------------|
+| `forge check farm` | Dashboard `/health` + fleet online |
+| `forge check llm` | CUDA 3.8 + AMD Empero + coder warm; Empero not on CUDA |
+| `forge check temps` | Compute dials / BC-250 thermals |
+| `forge check apps` | ARIA, AI-PM, ontology, Ray, Blender `:9876`, tower Ollama |
+| `forge check vpn` | Same as farm+apps (Meshnet = reach `.103` off-LAN) |
+| `forge check all` | Combined board |
+
+Skill for the desk agent: `.agents/skills/farm-check/SKILL.md`.
+
 ## CLI
 
 `Install-Forge-Shortcut.ps1` adds this folder to your user PATH so `forge` works in new terminals.
@@ -65,6 +80,14 @@ forge health
 forge log
 forge status
 forge status --json
+forge check list
+forge check all
+forge check farm
+forge check llm
+forge check temps
+forge check apps
+forge check vpn
+forge check all --json
 forge models -q
 forge use
 forge use chat --model qwen3.8:27b
@@ -74,6 +97,7 @@ forge edit "Add a --quiet flag to status" --file src/forge/cli.py
 forge compare ask "What does cli.py do?" --file src/forge/cli.py
 forge compare edit "Add a --quiet flag" --file src/forge/cli.py --model qwen3-coder:30b --model qwen3.8:27b
 forge recipe list
+forge recipe run farm-status
 forge launch vault
 forge launch aether --url https://example.org/page
 forge launch lumen --url /compliance/deviation

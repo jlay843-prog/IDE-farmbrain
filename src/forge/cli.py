@@ -1,4 +1,4 @@
-"""forge status|models|use|open|which|ask|edit|git|health|log|serve|projects|recipe|launch|vault|telegram"""
+"""forge status|check|models|use|open|which|ask|edit|git|health|log|serve|projects|recipe|launch|vault|telegram"""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from forge.hosts import TIERS, backend_for_tier
 from forge.io import configure_stdio, out, write_chunk
 from forge.launch import launch
 from forge.vault import search_vault, vault_info
+from forge.checks import format_board, run_check
 from forge.health import health_snapshot
 from forge.log import log_path, log_turn, read_turns
 from forge.probe import (
@@ -109,7 +110,18 @@ def cmd_status(args: argparse.Namespace) -> int:
         live = sum(1 for n in farm_nodes if n.get("ok"))
         bits = [f"{n['id']}{'' if n.get('ok') else '?'}" for n in farm_nodes]
         out(f"BC-250      {live}/{len(farm_nodes)} live  " + ", ".join(bits))
+    out("tip: forge check all | farm | llm | temps | apps | vpn")
     return 0 if snap["farm"]["ok"] or any(b["ok"] for b in snap["backends"].values()) else 1
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Canned PASS/FAIL boards for local coder — no improvisation."""
+    name = (args.name or "list").strip().lower()
+    board = run_check(name)
+    if args.json:
+        return _print_json(board)
+    out(format_board(board))
+    return 0 if board.get("result") in ("PASS", "WARN") or board.get("check") == "list" else 1
 
 
 def cmd_models(args: argparse.Namespace) -> int:
@@ -391,6 +403,16 @@ def cmd_recipe(args: argparse.Namespace) -> int:
         out_launch = launch(recipe["target"])
         out(str(out_launch.get("url") or out_launch.get("path") or out_launch))
         return 0 if out_launch.get("ok") else 1
+    if recipe["kind"] == "shell":
+        # Canned farm checks — run forge check, do not ask the LLM to invent status
+        cmd = str(recipe.get("command") or "")
+        if cmd.startswith("forge check"):
+            name = cmd.split()[-1] if cmd.strip() else "all"
+            board = run_check(name)
+            out(format_board(board))
+            return 0 if board.get("result") in ("PASS", "WARN", "list") or board.get("check") == "list" else 1
+        out(f"unsupported shell recipe: {cmd}", err=True)
+        return 1
     prompt = args.prompt or recipe["prompt"]
     files = args.file or []
     ns = argparse.Namespace(
@@ -585,6 +607,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("status", help="probe EVO CUDA/AMD, tower, Farm Brain")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser(
+        "check",
+        help="canned farm PASS/FAIL boards (farm|llm|temps|apps|vpn|all) — for local coder",
+    )
+    p.add_argument(
+        "name",
+        nargs="?",
+        default="list",
+        help="farm|llm|temps|apps|vpn|all (default: list)",
+    )
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("models", help="list tags + running models by host/GPU")
     p.add_argument("--json", action="store_true")

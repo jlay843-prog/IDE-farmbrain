@@ -13,7 +13,7 @@
         <div class="brand">
           <img src="/forge-icon.svg" alt="" />
           <span>FORGE</span>
-          <span id="appVersion" class="app-version" aria-label="Forge version">v1.3.0</span>
+          <span id="appVersion" class="app-version" aria-label="Forge version">v1.3.3</span>
         </div>
         <div class="mode-toggle" role="group" aria-label="Desk mode">
           <button type="button" id="easyModeBtn" class="btn mode-btn" data-mode="easy">Easy</button>
@@ -138,6 +138,28 @@
             </label>
             <div id="recipes" class="recipes"></div>
           </div>
+        </div>
+        <div class="easy-composer-bar" id="easyComposerBar">
+          <label class="picker">
+            <span>Turn</span>
+            <select id="easyIntent" aria-label="Ask or Code for this turn">
+              <option value="ask" selected>Ask</option>
+              <option value="code">Code</option>
+            </select>
+          </label>
+          <label class="picker">
+            <span>Farm check</span>
+            <select id="easyFarmCheck" aria-label="Canned farm status check">
+              <option value="">— pick —</option>
+              <option value="farm">Farm</option>
+              <option value="llm">LLM warm</option>
+              <option value="temps">Temps</option>
+              <option value="apps">Apps</option>
+              <option value="vpn">VPN</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+          <button id="easyFarmCheckRun" class="btn" type="button">Run check</button>
         </div>
         <div class="composer-chat">
           <div id="composerTranscript" class="composer-transcript scroll" aria-live="polite" aria-label="Conversation"></div>
