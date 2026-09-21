@@ -26,7 +26,7 @@ from forge.probe import (
 )
 from forge.recipes import RECIPES, get_recipe
 from forge.compare import run_compare
-from forge.helpers import run_helpers
+from forge.helpers import attach_post_edit_helpers, run_edit_helpers
 from forge.git import commit as git_commit
 from forge.git import diff_for as git_diff
 from forge.git import snapshot as git_snapshot
@@ -310,9 +310,19 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 def cmd_edit(args: argparse.Namespace) -> int:
     json_mode = False
+    helpers = [h for h in (getattr(args, "helper", None) or []) if h]
+    edit_prompt = args.prompt
+    pre_boards: list = []
+    plan_used_flash = False
+    if helpers:
+        edit_prompt, pre_boards, plan_used_flash = run_edit_helpers(helpers, args.prompt, args.file)
+        for board in pre_boards:
+            if board.get("helper") == "plan":
+                out("")
+                out(format_board(board))
     try:
         result = run_edit(
-            args.prompt,
+            edit_prompt,
             args.file,
             apply=False,
             tier=args.tier,
@@ -341,11 +351,16 @@ def cmd_edit(args: argparse.Namespace) -> int:
     if result.get("protected"):
         out("")
         out(PROTECTED_HINT)
-    helpers = [h for h in (getattr(args, "helper", None) or []) if h]
     if helpers:
-        boards = run_helpers(helpers, result, args.prompt, args.file)
-        result["helpers"] = boards
-        for board in boards:
+        result = attach_post_edit_helpers(
+            helpers,
+            result,
+            args.prompt,
+            args.file,
+            pre_boards,
+            plan_used_flash=plan_used_flash,
+        )
+        for board in (result.get("helpers") or [])[len(pre_boards) :]:
             out("")
             out(format_board(board))
     hunk_ids = list(args.hunk) if getattr(args, "hunk", None) else None
@@ -670,8 +685,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--helper",
         action="append",
         default=[],
-        choices=["review", "check"],
-        help="optional sequential helper after diff (review=Empero; check=5090 flash)",
+        choices=["plan", "review", "check"],
+        help="optional helpers: plan=5090 flash first; review=Empero after diff; check=5090 flash after diff",
     )
     p.set_defaults(func=cmd_edit)
 

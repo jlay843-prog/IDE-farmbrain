@@ -30,7 +30,7 @@ from forge.checks import format_board, run_check
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
 from forge.easy import classify_easy_prompt
-from forge.helpers import helper_catalog, run_helpers
+from forge.helpers import attach_post_edit_helpers, helper_catalog, run_edit_helpers
 from forge.llm import ollama_tool_xml_error
 from forge.project import create_project, sanitize_project_name
 from forge.session import SessionError, run_ask, run_edit
@@ -198,17 +198,34 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         log_turn("ask", result, body.get("prompt") or "")
         return _json_bytes(result)
     if path == "/api/edit" and method == "POST":
+        helpers = [h for h in (body.get("helpers") or []) if h]
+        edit_prompt = body["prompt"]
+        pre_boards: list = []
+        plan_used_flash = False
+        if helpers:
+            edit_prompt, pre_boards, plan_used_flash = run_edit_helpers(
+                helpers,
+                body["prompt"],
+                body.get("files") or [],
+                history=body.get("history"),
+            )
         result = run_edit(
-            body["prompt"],
+            edit_prompt,
             body.get("files") or [],
             apply=False,
             tier=body.get("tier"),
             model=body.get("model"),
             history=body.get("history"),
         )
-        helpers = [h for h in (body.get("helpers") or []) if h]
         if helpers:
-            result["helpers"] = run_helpers(helpers, result, body.get("prompt") or "", body.get("files") or [])
+            result = attach_post_edit_helpers(
+                helpers,
+                result,
+                body.get("prompt") or "",
+                body.get("files") or [],
+                pre_boards,
+                plan_used_flash=plan_used_flash,
+            )
         log_turn("edit", result, body.get("prompt") or "")
         return _json_bytes(result)
     if path == "/api/apply" and method == "POST":
@@ -413,9 +430,22 @@ class Handler(BaseHTTPRequestHandler):
             if not prompt:
                 raise SessionError("empty prompt")
             easy = kind == "easy"
+            helpers = [h for h in (body.get("helpers") or []) if h]
+            edit_prompt = prompt
+            pre_boards: list = []
+            plan_used_flash = False
+            if routed == "edit" and helpers:
+                edit_prompt, pre_boards, plan_used_flash = run_edit_helpers(
+                    helpers,
+                    prompt,
+                    files,
+                    history=history,
+                )
+                for board in pre_boards:
+                    self._write_sse({"helper": board})
             if routed == "edit":
                 result = run_edit(
-                    prompt,
+                    edit_prompt,
                     files,
                     apply=False,
                     tier=body.get("tier"),
@@ -439,9 +469,15 @@ class Handler(BaseHTTPRequestHandler):
                 )
             if easy_intent:
                 result = {**result, "intent": easy_intent, "easy": True}
-            helpers = [h for h in (body.get("helpers") or []) if h]
             if routed == "edit" and helpers:
-                result["helpers"] = run_helpers(helpers, result, prompt, files)
+                result = attach_post_edit_helpers(
+                    helpers,
+                    result,
+                    prompt,
+                    files,
+                    pre_boards,
+                    plan_used_flash=plan_used_flash,
+                )
             log_turn(routed if kind == "easy" else kind, result, prompt)
             self._write_sse({"done": True, **result})
         except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:

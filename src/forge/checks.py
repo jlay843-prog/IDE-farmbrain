@@ -8,6 +8,7 @@ Design for a low-reasoning model:
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -36,6 +37,8 @@ from forge.probe import farm_health, farm_json, probe_backend, ray_jobs_snapshot
 EXPECT_CUDA = "qwen3.8:27b-q4_K_M"
 EXPECT_AMD_HARD = "empero-35b-a3b:q4km"
 EXPECT_AMD_CODER = "qwen3-coder-next:latest"
+EXPECT_TOWER_FLASH = "qwen3.8-flash-next"
+TOWER_FLASH_URL = f"http://{TOWER}:11435/v1/models"
 
 # kind: json = API (Accept application/json); html = web UI (Accept */*); tcp = raw port
 APP_PROBES: list[tuple[str, str, str, str]] = [
@@ -264,10 +267,54 @@ def check_llm() -> dict[str, Any]:
             _line(
                 burst.get("ok") is True,
                 "tower_ollama",
-                f"{BACKENDS['burst'].base} ok={burst.get('ok')}",
+                f"{BACKENDS['burst'].base} ok={burst.get('ok')} (Q8 control; not Flash home)",
             )
         )
-    return _board("llm", lines, note="CUDA=chat/AI-PM; AMD=Empero HARD + coder")
+        # Flash-Next on llama.cpp :11435 — often not reachable from Legion (bind/firewall).
+        # Probe via EVO SSH when direct HTTP fails.
+        fcode, fbody = request_json(TOWER_FLASH_URL, timeout=4.0)
+        flash_ok = False
+        flash_ids: list[str] = []
+        via = "direct"
+        if fcode == 200 and isinstance(fbody, dict):
+            data = fbody.get("data") or fbody.get("models") or []
+            if isinstance(data, list):
+                for m in data:
+                    if isinstance(m, dict):
+                        flash_ids.append(str(m.get("id") or m.get("name") or ""))
+            flash_ok = any(EXPECT_TOWER_FLASH in x for x in flash_ids)
+        if not flash_ok:
+            via = "evo-ssh"
+            # Full JSON can exceed _ssh_run truncate — ask for ids only
+            ok, out = _ssh_run(
+                EVO,
+                "curl -s --max-time 5 http://192.168.68.106:11435/v1/models "
+                "| python3 -c \"import sys,json; d=json.load(sys.stdin); "
+                "print(','.join((m.get('id') or m.get('name') or '') for m in "
+                "(d.get('data') or d.get('models') or []) if isinstance(m,dict)))\"",
+                timeout=15.0,
+            )
+            if ok and out and "Permission denied" not in out:
+                flash_ids = [x for x in out.replace("\n", ",").split(",") if x.strip()]
+                flash_ok = any(EXPECT_TOWER_FLASH in x for x in flash_ids)
+                if flash_ok:
+                    fcode = 200
+                elif EXPECT_TOWER_FLASH in out:
+                    flash_ok = True
+                    fcode = 200
+                    flash_ids = [EXPECT_TOWER_FLASH]
+        lines.append(
+            _line(
+                flash_ok,
+                "tower_flash_next",
+                f":11435 via={via} http={fcode} models={','.join(flash_ids) or 'none'}",
+            )
+        )
+    return _board(
+        "llm",
+        lines,
+        note="CUDA=3.8 Q4 chat; AMD=Empero MoE + coder-next; tower :11435=Flash-Next",
+    )
 
 
 def check_apps() -> dict[str, Any]:

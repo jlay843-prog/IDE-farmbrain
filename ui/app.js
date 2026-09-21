@@ -373,8 +373,10 @@ function pickerFromStatus(status) {
 
 function selectedHelpers() {
   const out = [];
+  const plan = $("#helperPlan");
   const review = $("#helperReview");
   const check = $("#helperCheck");
+  if (plan && plan.checked && !plan.disabled) out.push("plan");
   if (review && review.checked) out.push("review");
   if (check && check.checked && !check.disabled) out.push("check");
   return out;
@@ -382,15 +384,27 @@ function selectedHelpers() {
 
 function renderHelpers(rows) {
   state.helpers = rows || [];
+  const plan = $("#helperPlan");
+  const planLabel = $("#helperPlanLabel");
   const check = $("#helperCheck");
   const checkLabel = $("#helperCheckLabel");
-  const slot = (rows || []).find((row) => row.id === "check");
+  const planSlot = (rows || []).find((row) => row.id === "plan");
+  const checkSlot = (rows || []).find((row) => row.id === "check");
+  if (plan) {
+    const enabled = !!(planSlot && planSlot.enabled);
+    plan.disabled = !enabled;
+    if (!enabled) plan.checked = false;
+    if (planLabel) {
+      planLabel.title = planSlot && planSlot.message ? planSlot.message : "";
+      planLabel.classList.toggle("helper-warn", !enabled);
+    }
+  }
   if (check) {
-    const enabled = !!(slot && slot.enabled);
+    const enabled = !!(checkSlot && checkSlot.enabled);
     check.disabled = !enabled;
     if (!enabled) check.checked = false;
     if (checkLabel) {
-      checkLabel.title = slot && slot.message ? slot.message : "";
+      checkLabel.title = checkSlot && checkSlot.message ? checkSlot.message : "";
       checkLabel.classList.toggle("helper-warn", !enabled);
     }
   }
@@ -1884,6 +1898,7 @@ async function sendEasy() {
         if (metaEl) metaEl.textContent = line;
       }
       if (ev.error) throw new Error(ev.error);
+      if (ev.helper) showHelperBoards([ev.helper]);
       if (ev.done && ev.text) text = ev.text;
       if (ev.done && ev.changes) changes = ev.changes;
       if (ev.done && ev.hunks) hunks = ev.hunks;
@@ -1990,6 +2005,7 @@ async function send(kind) {
         if (metaEl) metaEl.textContent = line;
       }
       if (ev.error) throw new Error(ev.error);
+      if (ev.helper) showHelperBoards([ev.helper]);
       if (ev.done && ev.text) text = ev.text;
       if (ev.done && ev.changes) changes = ev.changes;
       if (ev.done && ev.hunks) hunks = ev.hunks;
