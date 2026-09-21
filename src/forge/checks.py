@@ -873,6 +873,14 @@ def format_board(board: dict[str, Any]) -> str:
         rows.append(f"- {L['mark']:4} {L['label']}: {L['detail']}")
     if board.get("note"):
         rows.append(f"NOTE: {board['note']}")
+    lines = board.get("lines") or []
+    if board.get("passes") is None:
+        board = {
+            **board,
+            "passes": sum(1 for L in lines if str(L.get("mark", "")).upper() == "PASS"),
+            "fails": sum(1 for L in lines if str(L.get("mark", "")).upper() == "FAIL"),
+            "warns": sum(1 for L in lines if str(L.get("mark", "")).upper() == "WARN"),
+        }
     rows.append(
         f"SUMMARY: {board.get('passes', 0)} pass, {board.get('fails', 0)} fail, {board.get('warns', 0)} warn"
     )

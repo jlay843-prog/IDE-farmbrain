@@ -28,6 +28,20 @@ def test_unknown_check():
     assert board["result"] == "FAIL"
 
 
+def test_format_board_counts_warn_lines_when_totals_missing():
+    text = format_board(
+        {
+            "check": "plan",
+            "result": "WARN",
+            "lines": [{"mark": "WARN", "label": "flash", "detail": "ssh split"}],
+            "note": "5090 plan helper failed",
+        }
+    )
+    assert "RESULT: WARN" in text
+    assert "1 warn" in text
+    assert "0 pass, 0 fail, 0 warn" not in text
+
+
 def test_has_model_matches_qwen_tag_variants():
     assert _has_model(["qwen3.8:27b-q4_K_M"], "qwen3.8:27b-q4_K_M")
     assert _has_model(["qwen3.8:27b"], "qwen3.8:27b-q4_K_M")

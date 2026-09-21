@@ -25,6 +25,7 @@ FLASH_MODEL = "qwen3.8-flash-next"
 FLASH_BASE = f"http://{TOWER}:11435"
 FLASH_MODELS_URL = f"{FLASH_BASE}/v1/models"
 FLASH_CHAT_URL = f"{FLASH_BASE}/v1/chat/completions"
+FLASH_CHAT_FROM_EVO = f"http://{TOWER}:11435/v1/chat/completions"
 _DIRECT_TIMEOUT_S = 2.0
 FIRST_TOKEN_TIMEOUT_S = 90.0
 _PROBE_CACHE: tuple[float, tuple[bool, list[str], str]] | None = None
@@ -60,6 +61,79 @@ def _ssh_run(host: str, remote: str, *, timeout: float = 20.0) -> tuple[bool, st
         return proc.returncode == 0, out[:12000]
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)[:200]
+
+
+def _ssh_argv(remote: str) -> list[str]:
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-i",
+        _ssh_key(),
+        f"jeff@{EVO}",
+        remote,
+    ]
+
+
+def remote_python3_cmd(script: str, *args: str) -> str:
+    """Tiny remote -c: decode a short script. Payload is never in argv — stdin only."""
+    blob = base64.b64encode(script.encode("utf-8")).decode("ascii")
+    extra = (" " + " ".join(args)) if args else ""
+    return (
+        "python3 -c "
+        f"\"import base64,sys; exec(base64.b64decode('{blob}').decode())\""
+        f"{extra}"
+    )
+
+
+_FLASH_SSH_STREAM_PY = f"""
+import json, sys, urllib.request
+p = json.load(sys.stdin)
+p["stream"] = True
+timeout = int(sys.argv[1]) if len(sys.argv) > 1 else 120
+req = urllib.request.Request(
+    "{FLASH_CHAT_FROM_EVO}",
+    data=json.dumps(p).encode(),
+    headers={{"Content-Type": "application/json", "Accept": "text/event-stream"}},
+    method="POST",
+)
+resp = urllib.request.urlopen(req, timeout=timeout)
+for raw in resp:
+    line = raw.decode(errors="replace").strip()
+    if not line.startswith("data:"):
+        continue
+    payload = line[5:].strip()
+    if payload == "[DONE]":
+        break
+    try:
+        obj = json.loads(payload)
+    except Exception:
+        continue
+    choices = obj.get("choices") or []
+    if not choices:
+        continue
+    delta = choices[0].get("delta") or {{}}
+    text = str(delta.get("content") or delta.get("reasoning_content") or "")
+    if text:
+        print(json.dumps({{"delta": text}}), flush=True)
+"""
+
+_FLASH_SSH_ONCE_PY = f"""
+import json, sys, urllib.request
+p = json.load(sys.stdin)
+timeout = int(sys.argv[1]) if len(sys.argv) > 1 else 120
+req = urllib.request.Request(
+    "{FLASH_CHAT_FROM_EVO}",
+    data=json.dumps(p).encode(),
+    headers={{"Content-Type": "application/json"}},
+    method="POST",
+)
+print(urllib.request.urlopen(req, timeout=timeout).read().decode())
+"""
 
 
 def _parse_model_ids(body: Any) -> list[str]:
@@ -199,48 +273,26 @@ def _iter_flash_sse_direct(payload: dict[str, Any], *, timeout: float) -> Iterat
 
 
 def _iter_flash_sse_ssh(payload: dict[str, Any], *, timeout: float) -> Iterator[str]:
-    blob = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
-    remote = (
-        "python3 -c "
-        "'import json,base64,urllib.request,sys; "
-        f"p=json.loads(base64.b64decode(\"{blob}\").decode()); "
-        "p[\"stream\"]=True; "
-        "req=urllib.request.Request("
-        "\"http://192.168.68.106:11435/v1/chat/completions\", "
-        "data=json.dumps(p).encode(), "
-        "headers={\"Content-Type\":\"application/json\",\"Accept\":\"text/event-stream\"}, method=\"POST\"); "
-        f"resp=urllib.request.urlopen(req, timeout={int(timeout)}); "
-        "for raw in resp: "
-        " line=raw.decode(errors=\"replace\").strip(); "
-        " if not line.startswith(\"data:\"): continue; "
-        " payload=line[5:].strip(); "
-        " if payload==\"[DONE]\": break; "
-        " try: obj=json.loads(payload); "
-        " except Exception: continue; "
-        " choices=obj.get(\"choices\") or []; "
-        " if not choices: continue; "
-        " delta=(choices[0].get(\"delta\") or {}); "
-        " text=str(delta.get(\"content\") or delta.get(\"reasoning_content\") or \"\"); "
-        " if text: print(json.dumps({\"delta\": text}), flush=True)'"
-    )
-    cmd = [
-        "ssh",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ConnectTimeout=5",
-        "-o",
-        "StrictHostKeyChecking=accept-new",
-        "-i",
-        _ssh_key(),
-        f"jeff@{EVO}",
-        remote,
-    ]
+    remote = remote_python3_cmd(_FLASH_SSH_STREAM_PY, str(int(timeout)))
+    cmd = _ssh_argv(remote)
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
     except OSError as exc:
         raise RuntimeError(f"5090 flash ssh failed: {exc}") from exc
+    assert proc.stdin is not None
     assert proc.stdout is not None
+    try:
+        proc.stdin.write(json.dumps(payload))
+        proc.stdin.close()
+    except OSError as exc:
+        proc.kill()
+        raise RuntimeError(f"5090 flash ssh stdin failed: {exc}") from exc
     try:
         for line in proc.stdout:
             line = line.strip()
@@ -260,7 +312,7 @@ def _iter_flash_sse_ssh(payload: dict[str, Any], *, timeout: float) -> Iterator[
             proc.kill()
             raise RuntimeError("5090 flash ssh stream timed out") from None
         if proc.returncode != 0:
-            err = (proc.stderr.read() if proc.stderr else "")[:160]
+            err = (proc.stderr.read() if proc.stderr else "")[:400]
             raise RuntimeError(f"5090 flash chat failed via evo-ssh: {err or proc.returncode}")
 
 
@@ -420,20 +472,21 @@ def flash_chat(
             if text.strip():
                 return {"text": text, "model": tag, "via": "direct", "backend": "flash", "gpu": "RTX 5090"}
     via = "evo-ssh"
-    blob = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
-    remote = (
-        "python3 -c "
-        "'import json,base64,urllib.request; "
-        f"p=json.loads(base64.b64decode(\"{blob}\").decode()); "
-        "req=urllib.request.Request("
-        "\"http://192.168.68.106:11435/v1/chat/completions\", "
-        "data=json.dumps(p).encode(), "
-        "headers={\"Content-Type\":\"application/json\"}, method=\"POST\"); "
-        f"print(urllib.request.urlopen(req, timeout={int(timeout)}).read().decode())'"
-    )
-    ok, out = _ssh_run(EVO, remote, timeout=timeout + 10.0)
-    if not ok or not out.strip():
-        raise RuntimeError(f"5090 flash chat failed via {via}: {out[:160] or 'empty'}")
+    remote = remote_python3_cmd(_FLASH_SSH_ONCE_PY, str(int(timeout)))
+    try:
+        proc = subprocess.run(
+            _ssh_argv(remote),
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=timeout + 10.0,
+            check=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"5090 flash chat failed via {via}: {str(exc)[:200]}") from exc
+    out = (proc.stdout or "").strip() or (proc.stderr or "").strip()
+    if proc.returncode != 0 or not out:
+        raise RuntimeError(f"5090 flash chat failed via {via}: {out[:400] or 'empty'}")
     try:
         parsed = json.loads(out)
     except json.JSONDecodeError as exc:
