@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -407,6 +408,20 @@ class Handler(BaseHTTPRequestHandler):
         prompt = (body.get("prompt") or "").strip()
         files = body.get("files") or []
         history = body.get("history")
+        alive_stop = threading.Event()
+        coding_stream = False
+
+        def _sse_alive_loop() -> None:
+            while not alive_stop.wait(15):
+                if not coding_stream:
+                    continue
+                try:
+                    self._write_sse({"alive": True, "phase": "coding"})
+                except OSError:
+                    break
+
+        alive_thread = threading.Thread(target=_sse_alive_loop, daemon=True)
+        alive_thread.start()
 
         if kind == "easy":
             raw_intent = str(body.get("intent") or "").strip().lower()
@@ -453,6 +468,7 @@ class Handler(BaseHTTPRequestHandler):
                 for board in pre_boards:
                     self._write_sse({"helper": board, "phase": "plan"})
             if routed == "edit":
+                coding_stream = True
                 self._write_sse(
                     {
                         "phase": "coding",
@@ -509,6 +525,8 @@ class Handler(BaseHTTPRequestHandler):
             self._write_sse({"done": True, "ok": False, "error": desk_error_message(exc)})
         except OSError:
             return
+        finally:
+            alive_stop.set()
 
     def do_GET(self) -> None:  # noqa: N802
         self._handle("GET")

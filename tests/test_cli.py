@@ -526,6 +526,36 @@ def test_desk_composer_chat_enter_and_transcript():
     assert 'id="appVersion"' in html
 
 
+def test_desk_inspect_sse_keeps_thinking_banner():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "ui" / "app.js").read_text(encoding="utf-8")
+    assert "formatInspectDetail" in js
+    assert "setInspectBanner" in js
+    assert "Inspect round" in js
+    assert "reading …" in js
+    assert "looksLikeDiffStart" in js
+    assert "handleInspectDelta" in js
+    assert "INSPECT_IDLE_MS" in js
+    assert "still working" in js
+    assert 'if (inspectState.active) return' in js
+    assert "idleMs: INSPECT_IDLE_MS" in js
+
+
+def test_dist_win_skips_shortcuts_when_desk_open():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "scripts" / "dist-win.ps1").read_text(encoding="utf-8")
+    assert "Skipping shortcut refresh" in text
+    assert "Stop-Process" not in text
+    assert "$deskOpen" in text
+
+
+def test_serve_streams_coding_alive_heartbeat():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "src" / "forge" / "serve.py").read_text(encoding="utf-8")
+    assert '"alive": True' in text
+    assert '"phase": "coding"' in text
+
+
 def test_revisions_doc_lists_current_version():
     root = Path(__file__).resolve().parents[1]
     text = (root / "docs" / "REVISIONS.md").read_text(encoding="utf-8")

@@ -1159,6 +1159,88 @@ function beginReviewPhase(bubble, metaEl) {
   if (metaEl) metaEl.textContent = "review · empero-35b-a3b:q4km";
 }
 
+const INSPECT_IDLE_MS = 20000;
+const CODER_NEXT_LABEL = "qwen3-coder-next:latest";
+
+function resetInspectState() {
+  return { active: false, round: 0, max: 0, detail: "" };
+}
+
+function inspectRoundLabel(state) {
+  return `Inspect round ${state.round || "?"} of ${state.max || "?"}`;
+}
+
+function formatInspectDetail(t, state) {
+  const round = t.round || state.round || "?";
+  const max = t.max || state.max || "?";
+  const prefix = `Inspect round ${round} of ${max}`;
+  if (t.phase === "round") return `${prefix} — reading …`;
+  if (t.phase === "call") {
+    const name = t.name || "read";
+    const target = (t.args && (t.args.path || t.args.pattern)) || "…";
+    const verb = name === "grep" ? "grep" : name === "list" ? "list" : "read";
+    return `${prefix} — ${verb} ${target}`;
+  }
+  if (t.phase === "result") {
+    const bit = t.preview || t.detail || t.error || "done";
+    return `${prefix} — ${t.name || "tool"}: ${String(bit).slice(0, 72)}`;
+  }
+  return state.detail || `${prefix} — reading …`;
+}
+
+function applyInspectToolEvent(t, state) {
+  const next = { ...state, active: true };
+  if (t.round) next.round = t.round;
+  if (t.max) next.max = t.max;
+  next.detail = formatInspectDetail(t, next);
+  return next;
+}
+
+function setInspectBanner(bubble, metaEl, state, opts = {}) {
+  let detail = state.detail || `${inspectRoundLabel(state)} — reading …`;
+  if (opts.stillWorking) detail = `${detail} · ${CODER_NEXT_LABEL} still working`;
+  setThinkingBanner(bubble, "Inspecting workspace…", detail);
+  if (metaEl) metaEl.textContent = detail;
+}
+
+function looksLikeDiffStart(text) {
+  return /^\s*--- /m.test(String(text || ""));
+}
+
+function handleInspectDelta(ev, ctx) {
+  ctx.text += ev.delta;
+  if (looksLikeDiffStart(ctx.text)) {
+    ctx.inspectState.active = false;
+    if (ctx.bodyEl) ctx.bodyEl.textContent = ctx.text;
+    setThinkingBanner(
+      ctx.bubble,
+      "Streaming diff…",
+      ctx.metaEl ? ctx.metaEl.textContent : "unified diff"
+    );
+    scrollTranscript();
+    return;
+  }
+  setInspectBanner(ctx.bubble, ctx.metaEl, ctx.inspectState);
+}
+
+function handleStreamAlive(ev, ctx) {
+  if (ctx.inspectState.active) {
+    setInspectBanner(ctx.bubble, ctx.metaEl, ctx.inspectState, { stillWorking: true });
+    return;
+  }
+  if (ctx.coding) {
+    setThinkingBanner(ctx.bubble, "Coding…", `${CODER_NEXT_LABEL} · still working`);
+  }
+}
+
+function handleStreamIdle(ctx) {
+  if (ctx.inspectState.active) {
+    setInspectBanner(ctx.bubble, ctx.metaEl, ctx.inspectState, { stillWorking: true });
+  } else if (ctx.coding) {
+    setThinkingBanner(ctx.bubble, "Coding…", `${CODER_NEXT_LABEL} · still working`);
+  }
+}
+
 function escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -1838,27 +1920,44 @@ function parseSseBuffer(buf) {
   return { events, rest };
 }
 
-async function readSse(res, onEvent) {
-  if (!res.body || !res.body.getReader) {
-    const text = await res.text();
-    const parsed = parseSseBuffer(text.endsWith("\n\n") ? text : text + "\n\n");
-    for (const ev of parsed.events) onEvent(ev);
-    return;
+async function readSse(res, onEvent, opts = {}) {
+  const idleMs = opts.idleMs || 0;
+  const onIdle = opts.onIdle;
+  let lastAt = Date.now();
+  let idleTimer = null;
+  const emit = (ev) => {
+    lastAt = Date.now();
+    onEvent(ev);
+  };
+  if (onIdle && idleMs > 0) {
+    idleTimer = setInterval(() => {
+      if (Date.now() - lastAt >= idleMs) onIdle(Date.now() - lastAt);
+    }, 2000);
   }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const parsed = parseSseBuffer(buf);
-    buf = parsed.rest;
-    for (const ev of parsed.events) onEvent(ev);
-  }
-  if (buf.trim()) {
-    const parsed = parseSseBuffer(buf + "\n\n");
-    for (const ev of parsed.events) onEvent(ev);
+  try {
+    if (!res.body || !res.body.getReader) {
+      const text = await res.text();
+      const parsed = parseSseBuffer(text.endsWith("\n\n") ? text : text + "\n\n");
+      for (const ev of parsed.events) emit(ev);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parsed = parseSseBuffer(buf);
+      buf = parsed.rest;
+      for (const ev of parsed.events) emit(ev);
+    }
+    if (buf.trim()) {
+      const parsed = parseSseBuffer(buf + "\n\n");
+      for (const ev of parsed.events) emit(ev);
+    }
+  } finally {
+    if (idleTimer) clearInterval(idleTimer);
   }
 }
 
@@ -1893,9 +1992,22 @@ async function sendEasy() {
   let changes = null;
   let hunks = null;
   let intent = useCode ? "edit" : "ask";
-  let inspecting = false;
+  let inspectState = resetInspectState();
   let planStreamed = false;
   let streamedHelpers = new Set();
+  const streamCtx = () => ({
+    bubble,
+    bodyEl,
+    metaEl,
+    coding: useCode,
+    get text() {
+      return text;
+    },
+    set text(v) {
+      text = v;
+    },
+    inspectState,
+  });
   try {
     const res = await fetch("/api/easy/stream", {
       method: "POST",
@@ -1916,7 +2028,9 @@ async function sendEasy() {
       const data = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(data.error || res.statusText);
     }
-    await readSse(res, (ev) => {
+    await readSse(
+      res,
+      (ev) => {
       if (isPlanMeta(ev)) {
         planStreamed = true;
         if (metaEl) metaEl.textContent = `plan · ${ev.meta.model || "qwen3.8-flash-next"}`;
@@ -1927,14 +2041,20 @@ async function sendEasy() {
         beginCodingPhase(bubble, bodyEl);
         planStreamed = false;
         text = "";
+        inspectState = resetInspectState();
         return;
       }
       if (ev.phase === "review") {
         beginReviewPhase(bubble, metaEl);
         return;
       }
+      if (ev.alive) {
+        handleStreamAlive(ev, streamCtx());
+        return;
+      }
       if (ev.meta) {
         if (ev.meta.phase === "plan") return;
+        if (inspectState.active) return;
         intent = ev.meta.intent || ev.intent || intent;
         const meta = `${intent === "edit" ? "create" : "ask"} · ${ev.meta.model || ""}`.trim();
         if (metaEl && meta) metaEl.textContent = meta;
@@ -1953,9 +2073,9 @@ async function sendEasy() {
           scrollTranscript();
           return;
         }
-        if (inspecting) {
-          inspecting = false;
-          text = "";
+        if (inspectState.active) {
+          handleInspectDelta(ev, streamCtx());
+          return;
         }
         text += ev.delta;
         if (bodyEl) bodyEl.textContent = text;
@@ -1965,18 +2085,13 @@ async function sendEasy() {
       if (ev.tool) {
         const t = ev.tool;
         if (t.phase === "round" || t.phase === "call") {
-          inspecting = true;
+          inspectState = applyInspectToolEvent(t, inspectState);
           text = "";
           if (bodyEl) bodyEl.textContent = "";
+        } else if (t.phase === "result") {
+          inspectState = applyInspectToolEvent(t, inspectState);
         }
-        const line =
-          t.phase === "call"
-            ? `tool ${t.name} ${t.args && (t.args.path || t.args.pattern) ? t.args.path || t.args.pattern : ""}`.trim()
-            : t.phase === "round"
-              ? `inspect round ${t.round || ""} of ${t.max || ""}`.trim()
-              : `${t.name}: ${t.preview || t.error || ""}`;
-        setThinkingBanner(bubble, "Running tool…", line);
-        if (metaEl) metaEl.textContent = line;
+        setInspectBanner(bubble, metaEl, inspectState);
       }
       if (ev.error) throw new Error(ev.error);
       if (ev.helper) {
@@ -2002,7 +2117,12 @@ async function sendEasy() {
         });
         if (boards.length) showHelperBoards(boards);
       }
-    });
+    },
+      {
+        idleMs: INSPECT_IDLE_MS,
+        onIdle: () => handleStreamIdle(streamCtx()),
+      }
+    );
     if (bodyEl) bodyEl.textContent = text;
     if (intent === "edit" && changes && changes.length) {
       renderDiff(text, changes, hunks);
@@ -2053,9 +2173,22 @@ async function send(kind) {
   let text = "";
   let changes = null;
   let hunks = null;
-  let inspecting = false;
+  let inspectState = resetInspectState();
   let planStreamed = false;
   let streamedHelpers = new Set();
+  const streamCtx = () => ({
+    bubble,
+    bodyEl,
+    metaEl,
+    coding: kind === "edit",
+    get text() {
+      return text;
+    },
+    set text(v) {
+      text = v;
+    },
+    inspectState,
+  });
   try {
     const res = await fetch(kind === "edit" ? "/api/edit/stream" : "/api/ask/stream", {
       method: "POST",
@@ -2073,7 +2206,9 @@ async function send(kind) {
       const data = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(data.error || res.statusText);
     }
-    await readSse(res, (ev) => {
+    await readSse(
+      res,
+      (ev) => {
       if (isPlanMeta(ev)) {
         planStreamed = true;
         if (metaEl) metaEl.textContent = `plan · ${ev.meta.model || "qwen3.8-flash-next"}`;
@@ -2084,14 +2219,20 @@ async function send(kind) {
         beginCodingPhase(bubble, bodyEl);
         planStreamed = false;
         text = "";
+        inspectState = resetInspectState();
         return;
       }
       if (ev.phase === "review") {
         beginReviewPhase(bubble, metaEl);
         return;
       }
+      if (ev.alive) {
+        handleStreamAlive(ev, streamCtx());
+        return;
+      }
       if (ev.meta) {
         if (ev.meta.phase === "plan") return;
+        if (inspectState.active) return;
         const meta = `${ev.meta.model || ""} · ${ev.meta.backend || ""} · ${ev.meta.gpu || ""}`.trim();
         if (metaEl && meta) metaEl.textContent = meta;
         if (kind === "edit") setThinkingBanner(bubble, "Coding…", meta || "inspect then diff");
@@ -2105,9 +2246,9 @@ async function send(kind) {
           scrollTranscript();
           return;
         }
-        if (inspecting) {
-          inspecting = false;
-          text = "";
+        if (inspectState.active) {
+          handleInspectDelta(ev, streamCtx());
+          return;
         }
         text += ev.delta;
         if (bodyEl) bodyEl.textContent = text;
@@ -2117,19 +2258,13 @@ async function send(kind) {
       if (ev.tool) {
         const t = ev.tool;
         if (t.phase === "round" || t.phase === "call") {
-          inspecting = true;
+          inspectState = applyInspectToolEvent(t, inspectState);
           text = "";
           if (bodyEl) bodyEl.textContent = "";
+        } else if (t.phase === "result") {
+          inspectState = applyInspectToolEvent(t, inspectState);
         }
-        const line =
-          t.phase === "call"
-            ? `tool ${t.name} ${t.args && (t.args.path || t.args.pattern) ? t.args.path || t.args.pattern : ""}`.trim()
-            : t.phase === "round"
-              ? `inspect round ${t.round || ""} of ${t.max || ""}`.trim()
-              : `${t.name}: ${t.preview || t.error || ""}`;
-        const inspectLabel = t.phase === "round" ? "Inspecting workspace…" : "Running tool…";
-        setThinkingBanner(bubble, inspectLabel, line);
-        if (metaEl) metaEl.textContent = line;
+        setInspectBanner(bubble, metaEl, inspectState);
       }
       if (ev.error) throw new Error(ev.error);
       if (ev.helper) {
@@ -2160,7 +2295,12 @@ async function send(kind) {
         });
         if (boards.length) showHelperBoards(boards);
       }
-    });
+    },
+      {
+        idleMs: INSPECT_IDLE_MS,
+        onIdle: () => handleStreamIdle(streamCtx()),
+      }
+    );
     if (bodyEl) bodyEl.textContent = text;
     if (kind === "edit") renderDiff(text, changes, hunks);
     recordConversationTurn(prompt, text);
