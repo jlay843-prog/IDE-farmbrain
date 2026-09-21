@@ -467,6 +467,16 @@ body {
   font-family: var(--mono);
   text-align: right;
 }
+.plan-block {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  color: var(--cream);
+  background: var(--rust-deep);
+  border: 1px solid var(--brass-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+}
 .msg.thinking .meta { opacity: 0.85; }
 .composer-transcript .msg {
   margin: 0 0 6px;

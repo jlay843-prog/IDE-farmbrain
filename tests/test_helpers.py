@@ -161,6 +161,23 @@ def test_pipeline_plan_then_edit_then_review(monkeypatch):
     assert streamed == ["review", "review"]
 
 
+def test_run_helpers_skips_check_when_plan_used_flash(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        "forge.helpers.run_check_helper",
+        lambda *_args, **_kwargs: called.append(True) or {"helper": "check", "result": "PASS", "lines": [], "board": ""},
+    )
+    boards = run_helpers(
+        ["check"],
+        {"text": "--- a/foo.py\n+++ b/foo.py\n@@\n+x\n", "changes": [{"path": "foo.py"}]},
+        "hello",
+        skip_flash_check=True,
+    )
+    assert not called
+    assert boards[0]["helper"] == "check"
+    assert "plan already used 5090" in boards[0]["lines"][0]["detail"]
+
+
 def test_run_plan_helper_streams_callbacks(monkeypatch):
     monkeypatch.setattr("forge.helpers.probe_flash_tag", lambda: "qwen3.8-flash-next")
     deltas: list[str] = []

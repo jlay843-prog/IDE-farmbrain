@@ -16,6 +16,14 @@ def log_path() -> Path:
 
 def log_turn(kind: str, result: dict[str, Any], prompt: str = "") -> None:
     path = log_path()
+    helpers = result.get("helpers") or []
+    helper_ids = []
+    helper_results = []
+    for board in helpers:
+        if not isinstance(board, dict):
+            continue
+        helper_ids.append(str(board.get("helper") or board.get("check") or ""))
+        helper_results.append(str(board.get("result") or ""))
     row = {
         "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "kind": kind,
@@ -27,6 +35,8 @@ def log_turn(kind: str, result: dict[str, Any], prompt: str = "") -> None:
         "applied": result.get("applied"),
         "changed": result.get("changed") or [],
         "prompt": (prompt or "")[:240],
+        "helpers": [h for h in helper_ids if h],
+        "helper_results": helper_results,
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, default=str) + "\n")

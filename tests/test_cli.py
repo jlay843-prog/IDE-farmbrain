@@ -464,6 +464,27 @@ def test_health_cli_json(capsys):
     assert "monaco" in data
 
 
+def test_log_turn_records_helper_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    log_turn(
+        "edit",
+        {
+            "tier": "code",
+            "model": "qwen3-coder-next:latest",
+            "backend": "amd",
+            "gpu": "GTT",
+            "helpers": [
+                {"helper": "plan", "result": "PASS"},
+                {"helper": "review", "result": "WARN"},
+            ],
+        },
+        "crop code",
+    )
+    rows = read_turns(limit=5)
+    assert rows[0]["helpers"] == ["plan", "review"]
+    assert rows[0]["helper_results"] == ["PASS", "WARN"]
+
+
 def test_log_cli_empty(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     assert main(["log"]) == 0
@@ -539,6 +560,10 @@ def test_desk_inspect_sse_keeps_thinking_banner():
     assert "still working" in js
     assert 'if (inspectState.active) return' in js
     assert "idleMs: INSPECT_IDLE_MS" in js
+    assert "ev.phase === \"coding\" && !ev.alive" in js
+    assert "ensurePlanBlock" in js
+    assert "planFirst && !codingStarted" in js
+    assert "Planning on 5090 flash" in js
 
 
 def test_dist_win_skips_shortcuts_when_desk_open():
@@ -554,6 +579,9 @@ def test_serve_streams_coding_alive_heartbeat():
     text = (root / "src" / "forge" / "serve.py").read_text(encoding="utf-8")
     assert '"alive": True' in text
     assert '"phase": "coding"' in text
+    assert "stream_phase" in text
+    assert 'stream_phase[0] = "plan"' in text
+    assert 'stream_phase[0] = "coding"' in text
 
 
 def test_revisions_doc_lists_current_version():

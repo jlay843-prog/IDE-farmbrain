@@ -32,6 +32,7 @@ from forge.checks import format_board, run_check
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
 from forge.easy import classify_easy_prompt
+from forge.flash import FLASH_MODEL, probe_flash_tag
 from forge.helpers import attach_post_edit_helpers, helper_catalog, run_edit_helpers
 from forge.llm import ollama_tool_xml_error
 from forge.project import create_project, sanitize_project_name
@@ -409,16 +410,23 @@ class Handler(BaseHTTPRequestHandler):
         files = body.get("files") or []
         history = body.get("history")
         alive_stop = threading.Event()
-        coding_stream = False
+        stream_phase: list[str | None] = [None]
 
         def _sse_alive_loop() -> None:
             while not alive_stop.wait(15):
-                if not coding_stream:
+                phase = stream_phase[0]
+                if not phase:
                     continue
                 try:
-                    self._write_sse({"alive": True, "phase": "coding"})
+                    self._write_sse({"alive": True, "phase": phase})
                 except OSError:
                     break
+
+        def _emit_helper_phase(payload: dict[str, Any]) -> None:
+            phase = str(payload.get("phase") or "").strip()
+            if phase:
+                stream_phase[0] = phase
+            self._write_sse(payload)
 
         alive_thread = threading.Thread(target=_sse_alive_loop, daemon=True)
         alive_thread.start()
@@ -457,6 +465,19 @@ class Handler(BaseHTTPRequestHandler):
             pre_boards: list = []
             plan_used_flash = False
             if routed == "edit" and helpers:
+                if "plan" in helpers:
+                    stream_phase[0] = "plan"
+                    self._write_sse(
+                        {
+                            "meta": {
+                                "phase": "plan",
+                                "model": probe_flash_tag() or FLASH_MODEL,
+                                "backend": "flash",
+                                "gpu": "RTX 5090",
+                                "tier": "flash",
+                            }
+                        }
+                    )
                 edit_prompt, pre_boards, plan_used_flash = run_edit_helpers(
                     helpers,
                     prompt,
@@ -468,7 +489,7 @@ class Handler(BaseHTTPRequestHandler):
                 for board in pre_boards:
                     self._write_sse({"helper": board, "phase": "plan"})
             if routed == "edit":
-                coding_stream = True
+                stream_phase[0] = "coding"
                 self._write_sse(
                     {
                         "phase": "coding",
@@ -512,7 +533,7 @@ class Handler(BaseHTTPRequestHandler):
                     files,
                     pre_boards,
                     plan_used_flash=plan_used_flash,
-                    on_phase=lambda payload: self._write_sse(payload),
+                    on_phase=lambda payload: _emit_helper_phase(payload),
                     on_helper=lambda board: self._write_sse(
                         {"helper": board, "phase": board.get("helper") or board.get("check")}
                     ),

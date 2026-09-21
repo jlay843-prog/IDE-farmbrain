@@ -1142,14 +1142,31 @@ function isPlanDelta(ev) {
 }
 
 function isCodingPhase(ev) {
-  return !!(ev && (ev.phase === "coding" || (ev.meta && ev.meta.phase === "coding")));
+  // Explicit Plan → Code transition only. Alive heartbeats reuse phase:"coding"
+  // and must not wipe Plan text or reset inspect.
+  return !!(ev && ev.phase === "coding" && !ev.alive);
 }
 
 function isReviewPhase(ev) {
-  return !!(ev && (ev.phase === "review" || (ev.helper && ev.helper.helper === "review")));
+  return !!(ev && ev.phase === "review" && !ev.alive && !ev.helper);
 }
 
-function beginCodingPhase(bubble, bodyEl) {
+function ensurePlanBlock(bubble, planText) {
+  const text = String(planText || "").trim();
+  if (!bubble || !text) return;
+  let block = bubble.querySelector(".plan-block");
+  if (!block) {
+    block = document.createElement("pre");
+    block.className = "plan-block";
+    const body = bubble.querySelector(".body");
+    if (body) bubble.insertBefore(block, body);
+    else bubble.appendChild(block);
+  }
+  block.textContent = text;
+}
+
+function beginCodingPhase(bubble, bodyEl, opts = {}) {
+  if (opts.planText) ensurePlanBlock(bubble, opts.planText);
   if (bodyEl) bodyEl.textContent = "";
   setThinkingBanner(bubble, "Coding…", "qwen3-coder-next:latest · inspect then diff");
 }
@@ -1224,6 +1241,10 @@ function handleInspectDelta(ev, ctx) {
 }
 
 function handleStreamAlive(ev, ctx) {
+  if ((ev && ev.phase === "plan") || ctx.planning) {
+    setThinkingBanner(ctx.bubble, "Planning on 5090 flash…", planFlashDetail());
+    return;
+  }
   if (ctx.inspectState.active) {
     setInspectBanner(ctx.bubble, ctx.metaEl, ctx.inspectState, { stillWorking: true });
     return;
@@ -1234,6 +1255,10 @@ function handleStreamAlive(ev, ctx) {
 }
 
 function handleStreamIdle(ctx) {
+  if (ctx.planning) {
+    setThinkingBanner(ctx.bubble, "Planning on 5090 flash…", `${planFlashDetail()} · still working`);
+    return;
+  }
   if (ctx.inspectState.active) {
     setInspectBanner(ctx.bubble, ctx.metaEl, ctx.inspectState, { stillWorking: true });
   } else if (ctx.coding) {
@@ -1994,12 +2019,14 @@ async function sendEasy() {
   let intent = useCode ? "edit" : "ask";
   let inspectState = resetInspectState();
   let planStreamed = false;
+  let codingStarted = false;
   let streamedHelpers = new Set();
   const streamCtx = () => ({
     bubble,
     bodyEl,
     metaEl,
-    coding: useCode,
+    planning: planFirst && !codingStarted,
+    coding: codingStarted,
     get text() {
       return text;
     },
@@ -2032,19 +2059,18 @@ async function sendEasy() {
       res,
       (ev) => {
       if (isPlanMeta(ev)) {
-        planStreamed = true;
         if (metaEl) metaEl.textContent = `plan · ${ev.meta.model || "qwen3.8-flash-next"}`;
         setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail(ev.meta));
         return;
       }
       if (isCodingPhase(ev)) {
-        beginCodingPhase(bubble, bodyEl);
-        planStreamed = false;
+        beginCodingPhase(bubble, bodyEl, { planText: planStreamed ? text : "" });
+        codingStarted = true;
         text = "";
         inspectState = resetInspectState();
         return;
       }
-      if (ev.phase === "review") {
+      if (isReviewPhase(ev)) {
         beginReviewPhase(bubble, metaEl);
         return;
       }
@@ -2058,7 +2084,9 @@ async function sendEasy() {
         intent = ev.meta.intent || ev.intent || intent;
         const meta = `${intent === "edit" ? "create" : "ask"} · ${ev.meta.model || ""}`.trim();
         if (metaEl && meta) metaEl.textContent = meta;
-        if (intent === "edit" && !isPlanMeta(ev)) {
+        if (planFirst && !codingStarted) {
+          setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail(ev.meta));
+        } else if (intent === "edit" && !isPlanMeta(ev)) {
           setThinkingBanner(bubble, "Coding…", "read · list · grep");
         } else if (intent !== "edit") {
           setThinkingBanner(bubble, "Thinking…", "capability answer");
@@ -2079,7 +2107,11 @@ async function sendEasy() {
         }
         text += ev.delta;
         if (bodyEl) bodyEl.textContent = text;
-        setThinkingBanner(bubble, "Coding…", metaEl ? metaEl.textContent : "inspect then diff");
+        if (planFirst && !codingStarted) {
+          setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail());
+        } else if (useCode) {
+          setThinkingBanner(bubble, "Coding…", metaEl ? metaEl.textContent : "inspect then diff");
+        }
         scrollTranscript();
       }
       if (ev.tool) {
@@ -2175,12 +2207,14 @@ async function send(kind) {
   let hunks = null;
   let inspectState = resetInspectState();
   let planStreamed = false;
+  let codingStarted = false;
   let streamedHelpers = new Set();
   const streamCtx = () => ({
     bubble,
     bodyEl,
     metaEl,
-    coding: kind === "edit",
+    planning: planFirst && !codingStarted,
+    coding: codingStarted,
     get text() {
       return text;
     },
@@ -2210,19 +2244,18 @@ async function send(kind) {
       res,
       (ev) => {
       if (isPlanMeta(ev)) {
-        planStreamed = true;
         if (metaEl) metaEl.textContent = `plan · ${ev.meta.model || "qwen3.8-flash-next"}`;
         setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail(ev.meta));
         return;
       }
       if (isCodingPhase(ev)) {
-        beginCodingPhase(bubble, bodyEl);
-        planStreamed = false;
+        beginCodingPhase(bubble, bodyEl, { planText: planStreamed ? text : "" });
+        codingStarted = true;
         text = "";
         inspectState = resetInspectState();
         return;
       }
-      if (ev.phase === "review") {
+      if (isReviewPhase(ev)) {
         beginReviewPhase(bubble, metaEl);
         return;
       }
@@ -2235,7 +2268,11 @@ async function send(kind) {
         if (inspectState.active) return;
         const meta = `${ev.meta.model || ""} · ${ev.meta.backend || ""} · ${ev.meta.gpu || ""}`.trim();
         if (metaEl && meta) metaEl.textContent = meta;
-        if (kind === "edit") setThinkingBanner(bubble, "Coding…", meta || "inspect then diff");
+        if (planFirst && !codingStarted) {
+          setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail(ev.meta));
+        } else if (kind === "edit") {
+          setThinkingBanner(bubble, "Coding…", meta || "inspect then diff");
+        }
       }
       if (ev.delta) {
         if (isPlanDelta(ev)) {
@@ -2252,7 +2289,11 @@ async function send(kind) {
         }
         text += ev.delta;
         if (bodyEl) bodyEl.textContent = text;
-        setThinkingBanner(bubble, "Coding…", metaEl ? metaEl.textContent : "inspect then diff");
+        if (planFirst && !codingStarted) {
+          setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail());
+        } else if (kind === "edit") {
+          setThinkingBanner(bubble, "Coding…", metaEl ? metaEl.textContent : "inspect then diff");
+        }
         scrollTranscript();
       }
       if (ev.tool) {
