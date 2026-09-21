@@ -26,6 +26,7 @@ from forge.hosts import LINKS
 from forge.launch import launch, link_catalog, open_path
 from forge.vault import search_vault, vault_info
 from forge.log import log_path, log_turn, read_turns
+from forge.pending import clear_pending_accept, load_pending_accept, maybe_save_edit_pending
 from forge.checks import format_board, run_check
 from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_snapshot
 from forge.recipes import RECIPES, get_recipe
@@ -129,8 +130,12 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 "handoff": handoff_snapshot(),
                 "term": term_snapshot(),
                 "helpers": helper_catalog(),
+                "pending_accept": load_pending_accept(),
             }
         )
+    if path == "/api/pending-accept/clear" and method == "POST":
+        clear_pending_accept()
+        return _json_bytes({"ok": True})
     if path == "/api/helpers":
         return _json_bytes({"ok": True, "helpers": helper_catalog()})
     if path == "/api/log":
@@ -226,6 +231,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 pre_boards,
                 plan_used_flash=plan_used_flash,
             )
+        maybe_save_edit_pending(body.get("prompt") or "", result)
         log_turn("edit", result, body.get("prompt") or "")
         return _json_bytes(result)
     if path == "/api/apply" and method == "POST":
@@ -240,6 +246,7 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
         ids = [int(x) for x in hunks] if hunks is not None else None
         changed = apply_diff(root, body["diff"], ids)
         result = {"ok": True, "kind": "apply", "changed": changed, "applied": True, "files": [], "hunks": ids}
+        clear_pending_accept()
         log_turn("apply", result, "")
         return _json_bytes(result)
     if path == "/api/projects" and method == "GET":
@@ -440,6 +447,8 @@ class Handler(BaseHTTPRequestHandler):
                     prompt,
                     files,
                     history=history,
+                    on_plan_begin=lambda meta: self._write_sse({"meta": meta}),
+                    on_plan_delta=lambda delta: self._write_sse({"delta": delta, "phase": "plan"}),
                 )
                 for board in pre_boards:
                     self._write_sse({"helper": board})
@@ -478,6 +487,8 @@ class Handler(BaseHTTPRequestHandler):
                     pre_boards,
                     plan_used_flash=plan_used_flash,
                 )
+            if routed == "edit":
+                maybe_save_edit_pending(prompt, result)
             log_turn(routed if kind == "easy" else kind, result, prompt)
             self._write_sse({"done": True, **result})
         except (SessionError, FileNotFoundError, ValueError, RuntimeError) as exc:

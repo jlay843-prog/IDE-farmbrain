@@ -8,6 +8,7 @@ check:  5090 flash check after edit — skipped when plan already used the 5090.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from forge.checks import format_board
@@ -119,7 +120,13 @@ def parse_review_board(text: str) -> dict[str, Any]:
     return _finalize_board(board)
 
 
-def run_plan_helper(prompt: str, *, history: list | None = None) -> dict[str, Any]:
+def run_plan_helper(
+    prompt: str,
+    *,
+    history: list | None = None,
+    on_delta: Callable[[str], None] | None = None,
+    on_begin: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     """Ask-only plan on tower flash — no workspace files."""
     flash_tag = probe_flash_tag()
     if not flash_tag:
@@ -138,8 +145,24 @@ def run_plan_helper(prompt: str, *, history: list | None = None) -> dict[str, An
                 tail.append(f"{role}: {str(turn['content'])[:800]}")
         if tail:
             parts.append("RECENT CHAT:\n" + "\n".join(tail))
+    if on_begin:
+        on_begin(
+            {
+                "model": flash_tag,
+                "backend": "flash",
+                "gpu": "RTX 5090",
+                "tier": "flash",
+                "phase": "plan",
+            }
+        )
     try:
-        reply = flash_chat("\n\n".join(parts), model=flash_tag, system=PLAN_SYSTEM, max_tokens=1800)
+        reply = flash_chat(
+            "\n\n".join(parts),
+            model=flash_tag,
+            system=PLAN_SYSTEM,
+            max_tokens=1800,
+            on_delta=on_delta,
+        )
     except RuntimeError as exc:
         board = _board("plan", [_line("WARN", "flash", str(exc))], note="5090 plan helper failed")
         return _finalize_board(board)
@@ -298,6 +321,8 @@ def run_edit_helpers(
     files: list[str] | None = None,
     *,
     history: list | None = None,
+    on_plan_delta: Callable[[str], None] | None = None,
+    on_plan_begin: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[str, list[dict[str, Any]], bool]:
     """Pre/post helper orchestration for Edit. Returns (edit_prompt, helper_boards, plan_used_flash)."""
     ids = [h for h in helper_ids if h]
@@ -305,7 +330,12 @@ def run_edit_helpers(
     edit_prompt = prompt
     plan_used_flash = False
     if "plan" in ids:
-        plan_board = run_plan_helper(prompt, history=history)
+        plan_board = run_plan_helper(
+            prompt,
+            history=history,
+            on_delta=on_plan_delta,
+            on_begin=on_plan_begin,
+        )
         boards.append(plan_board)
         plan_used_flash = plan_board.get("result") == "PASS" and bool((plan_board.get("text") or "").strip())
         if plan_used_flash:

@@ -239,6 +239,26 @@ async function openEasyFile() {
   }
 }
 
+async function clearPendingAccept() {
+  try {
+    await api("/api/pending-accept/clear", { method: "POST", body: "{}" });
+  } catch {
+    /* ignore */
+  }
+}
+
+function restorePendingAccept(row) {
+  if (!row || !row.diff || state.lastDiff) return;
+  renderDiff(row.diff, row.changes, row.hunks);
+  const status = row.hunk_status || {};
+  for (const [id, mark] of Object.entries(status)) {
+    if (mark && mark !== "pending") markHunk(id, mark);
+  }
+  if (isEasyMode()) showEasyAccept(row.changes);
+  else setTab("diff");
+  toast("Recovered pending changes — Accept is still available.");
+}
+
 function showEasyAccept(changes) {
   const bar = $("#easyAccept");
   const summary = $("#easyAcceptSummary");
@@ -1108,6 +1128,19 @@ function clearThinkingBanner(bubble) {
   if (banner) banner.remove();
 }
 
+function planFlashDetail(meta) {
+  const model = (meta && meta.model) || "qwen3.8-flash-next";
+  return `${model} · tower :11435 · ~16 t/s`;
+}
+
+function isPlanMeta(ev) {
+  return !!(ev && ev.meta && ev.meta.phase === "plan");
+}
+
+function isPlanDelta(ev) {
+  return !!(ev && ev.phase === "plan");
+}
+
 function escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -1694,6 +1727,7 @@ async function refreshAll() {
   renderMesh(mesh);
   await refreshLog();
   await maybeShowEasySetup();
+  if (desk.pending_accept) restorePendingAccept(desk.pending_accept);
 }
 
 function renderLog(data) {
@@ -1829,10 +1863,12 @@ async function sendEasy() {
   const metaEl = bubble.querySelector(".meta");
   const intentPick = ($("#easyIntent") && $("#easyIntent").value) || "ask";
   const useCode = intentPick === "code";
+  const helpers = useCode ? selectedHelpers() : [];
+  const planFirst = helpers.includes("plan");
   setThinkingBanner(
     bubble,
-    useCode ? "Inspecting workspace…" : "Thinking…",
-    useCode ? "Code · qwen3-coder-next:latest" : "Ask · qwen3.8:27b"
+    planFirst ? "Planning on 5090 flash…" : useCode ? "Inspecting workspace…" : "Thinking…",
+    planFirst ? planFlashDetail() : useCode ? "Code · qwen3-coder-next:latest" : "Ask · qwen3.8:27b"
   );
   setBusy(true);
   let text = "";
@@ -1840,6 +1876,7 @@ async function sendEasy() {
   let hunks = null;
   let intent = useCode ? "edit" : "ask";
   let inspecting = false;
+  let planStreamed = false;
   try {
     const res = await fetch("/api/easy/stream", {
       method: "POST",
@@ -1853,7 +1890,7 @@ async function sendEasy() {
         model: useCode
           ? ($("#codeModel") && $("#codeModel").value) || undefined
           : ($("#chatModel") && $("#chatModel").value) || undefined,
-        helpers: useCode ? selectedHelpers() : [],
+        helpers,
       }),
     });
     if (!res.ok) {
@@ -1861,6 +1898,12 @@ async function sendEasy() {
       throw new Error(data.error || res.statusText);
     }
     await readSse(res, (ev) => {
+      if (isPlanMeta(ev)) {
+        planStreamed = true;
+        if (metaEl) metaEl.textContent = `plan · ${ev.meta.model || "qwen3.8-flash-next"}`;
+        setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail(ev.meta));
+        return;
+      }
       if (ev.meta) {
         intent = ev.meta.intent || ev.intent || intent;
         const meta = `${intent === "edit" ? "create" : "ask"} · ${ev.meta.model || ""}`.trim();
@@ -1872,6 +1915,14 @@ async function sendEasy() {
         );
       }
       if (ev.delta) {
+        if (isPlanDelta(ev)) {
+          planStreamed = true;
+          text += ev.delta;
+          if (bodyEl) bodyEl.textContent = text;
+          setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail());
+          scrollTranscript();
+          return;
+        }
         if (inspecting) {
           inspecting = false;
           text = "";
@@ -1898,13 +1949,19 @@ async function sendEasy() {
         if (metaEl) metaEl.textContent = line;
       }
       if (ev.error) throw new Error(ev.error);
-      if (ev.helper) showHelperBoards([ev.helper]);
+      if (ev.helper) {
+        if (ev.helper.helper === "plan" && planStreamed) return;
+        showHelperBoards([ev.helper]);
+      }
       if (ev.done && ev.text) text = ev.text;
       if (ev.done && ev.changes) changes = ev.changes;
       if (ev.done && ev.hunks) hunks = ev.hunks;
       if (ev.done && ev.intent) intent = ev.intent;
       if (ev.done && ev.model && metaEl) metaEl.textContent = `${intent} · ${ev.model}`;
-      if (ev.done && ev.helpers) showHelperBoards(ev.helpers);
+      if (ev.done && ev.helpers) {
+        const boards = (ev.helpers || []).filter((board) => !(board.helper === "plan" && planStreamed));
+        if (boards.length) showHelperBoards(boards);
+      }
     });
     if (bodyEl) bodyEl.textContent = text;
     if (intent === "edit" && changes && changes.length) {
@@ -1944,17 +2001,20 @@ async function send(kind) {
   bubble.classList.add("streaming");
   const bodyEl = bubble.querySelector(".body");
   const metaEl = bubble.querySelector(".meta");
+  const helpers = kind === "edit" ? selectedHelpers() : [];
+  const planFirst = helpers.includes("plan");
   setThinkingBanner(
     bubble,
-    kind === "edit" ? "Inspecting workspace…" : "Thinking…",
-    kind === "edit" ? "read · list · grep" : "waiting for response"
+    planFirst ? "Planning on 5090 flash…" : kind === "edit" ? "Inspecting workspace…" : "Thinking…",
+    planFirst ? planFlashDetail() : kind === "edit" ? "read · list · grep" : "waiting for response"
   );
   setBusy(true);
-  toast(kind === "edit" ? "Edit running — inspect then diff…" : "Streaming local Qwen…");
+  toast(planFirst ? "Planning on 5090 flash…" : kind === "edit" ? "Edit running — inspect then diff…" : "Streaming local Qwen…");
   let text = "";
   let changes = null;
   let hunks = null;
   let inspecting = false;
+  let planStreamed = false;
   try {
     const res = await fetch(kind === "edit" ? "/api/edit/stream" : "/api/ask/stream", {
       method: "POST",
@@ -1965,7 +2025,7 @@ async function send(kind) {
         history: boundedHistory(),
         tier: kind === "edit" ? "code" : "chat",
         model: kind === "edit" ? $("#codeModel").value || undefined : $("#chatModel").value || undefined,
-        helpers: kind === "edit" ? selectedHelpers() : [],
+        helpers,
       }),
     });
     if (!res.ok) {
@@ -1973,11 +2033,25 @@ async function send(kind) {
       throw new Error(data.error || res.statusText);
     }
     await readSse(res, (ev) => {
+      if (isPlanMeta(ev)) {
+        planStreamed = true;
+        if (metaEl) metaEl.textContent = `plan · ${ev.meta.model || "qwen3.8-flash-next"}`;
+        setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail(ev.meta));
+        return;
+      }
       if (ev.meta) {
         const meta = `${ev.meta.model || ""} · ${ev.meta.backend || ""} · ${ev.meta.gpu || ""}`.trim();
         if (metaEl && meta) metaEl.textContent = meta;
       }
       if (ev.delta) {
+        if (isPlanDelta(ev)) {
+          planStreamed = true;
+          text += ev.delta;
+          if (bodyEl) bodyEl.textContent = text;
+          setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail());
+          scrollTranscript();
+          return;
+        }
         if (inspecting) {
           inspecting = false;
           text = "";
@@ -2005,7 +2079,10 @@ async function send(kind) {
         if (metaEl) metaEl.textContent = line;
       }
       if (ev.error) throw new Error(ev.error);
-      if (ev.helper) showHelperBoards([ev.helper]);
+      if (ev.helper) {
+        if (ev.helper.helper === "plan" && planStreamed) return;
+        showHelperBoards([ev.helper]);
+      }
       if (ev.done && ev.text) text = ev.text;
       if (ev.done && ev.changes) changes = ev.changes;
       if (ev.done && ev.hunks) hunks = ev.hunks;
@@ -2016,7 +2093,10 @@ async function send(kind) {
       if (ev.done && ev.model && metaEl) {
         metaEl.textContent = `${ev.model} · ${ev.backend || ""} · ${ev.gpu || ""}`;
       }
-      if (ev.done && ev.helpers) showHelperBoards(ev.helpers);
+      if (ev.done && ev.helpers) {
+        const boards = (ev.helpers || []).filter((board) => !(board.helper === "plan" && planStreamed));
+        if (boards.length) showHelperBoards(boards);
+      }
     });
     if (bodyEl) bodyEl.textContent = text;
     if (kind === "edit") renderDiff(text, changes, hunks);
@@ -2148,6 +2228,7 @@ async function applyHunks(ids, single) {
     const applied = out.changed || [];
     const easyFile = isEasyMode() ? primaryEasyFile(state.changes, applied) : "";
     hideEasyAccept();
+    await clearPendingAccept();
     state.lastDiff = "";
     state.changes = [];
     state.hunks = [];
@@ -2244,13 +2325,15 @@ function bind() {
   const easyRejectBtn = $("#easyRejectBtn");
   if (easyRejectBtn) {
     easyRejectBtn.addEventListener("click", () => {
-      hideEasyAccept();
-      hideEasyOpen();
-      state.lastDiff = "";
-      state.changes = [];
-      state.hunks = [];
-      state.hunkStatus = {};
-      toast("Changes rejected.");
+      clearPendingAccept().finally(() => {
+        hideEasyAccept();
+        hideEasyOpen();
+        state.lastDiff = "";
+        state.changes = [];
+        state.hunks = [];
+        state.hunkStatus = {};
+        toast("Changes rejected.");
+      });
     });
   }
   const easyOpenBtn = $("#easyOpenBtn");
@@ -2309,15 +2392,17 @@ function bind() {
   syncCompareModeVisibility();
   $("#applyBtn").addEventListener("click", applyDiff);
   $("#rejectBtn").addEventListener("click", () => {
-    state.lastDiff = "";
-    state.gitDiff = false;
-    state.changes = [];
-    state.hunks = [];
-    state.hunkStatus = {};
-    renderChangeList([]);
-    const body = $("#diffBody");
-    if (body) body.innerHTML = "";
-    setTab("session");
+    clearPendingAccept().finally(() => {
+      state.lastDiff = "";
+      state.gitDiff = false;
+      state.changes = [];
+      state.hunks = [];
+      state.hunkStatus = {};
+      renderChangeList([]);
+      const body = $("#diffBody");
+      if (body) body.innerHTML = "";
+      setTab("session");
+    });
   });
   const gitMessage = $("#gitMessage");
   if (gitMessage) {

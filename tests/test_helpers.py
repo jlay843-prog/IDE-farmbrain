@@ -60,3 +60,25 @@ def test_run_edit_helpers_without_live_flash(monkeypatch):
     assert used is False
     assert prompt == "add tests"
     assert boards and boards[0]["helper"] == "plan"
+
+
+def test_run_plan_helper_streams_callbacks(monkeypatch):
+    monkeypatch.setattr("forge.helpers.probe_flash_tag", lambda: "qwen3.8-flash-next")
+    deltas: list[str] = []
+    began: list[dict] = []
+
+    def fake_chat(*_args, on_delta=None, **_kwargs):
+        if on_delta:
+            on_delta("step ")
+            on_delta("one")
+        return {"text": "step one", "model": "qwen3.8-flash-next", "via": "evo-ssh"}
+
+    monkeypatch.setattr("forge.helpers.flash_chat", fake_chat)
+    board = run_plan_helper(
+        "build a widget",
+        on_delta=lambda d: deltas.append(d),
+        on_begin=lambda meta: began.append(meta),
+    )
+    assert board["result"] == "PASS"
+    assert "".join(deltas) == "step one"
+    assert began and began[0]["phase"] == "plan"

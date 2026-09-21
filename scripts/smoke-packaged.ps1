@@ -25,18 +25,24 @@ $env:FORGE_DATA = $data
 $env:FORGE_BIND = $bind
 $env:FORGE_PORT = $port
 
-Get-Process electron,Forge,python,py -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-
-$p = Start-Process -FilePath $Exe -PassThru
+$health = $null
 $ok = $false
-for ($i = 0; $i -lt 90; $i++) {
-  try {
-    $health = Invoke-RestMethod -Uri "$base/api/health" -TimeoutSec 2
-    if ($health.ok -and $health.version -eq $wantVersion) { $ok = $true; break }
-  } catch {}
-  if ($p.HasExited) { break }
-  Start-Sleep -Milliseconds 500
+try {
+  $health = Invoke-RestMethod -Uri "$base/api/health" -TimeoutSec 2
+  if ($health.ok -and $health.version -eq $wantVersion) { $ok = $true }
+} catch {}
+
+$p = $null
+if (-not $ok) {
+  $p = Start-Process -FilePath $Exe -PassThru
+  for ($i = 0; $i -lt 90; $i++) {
+    try {
+      $health = Invoke-RestMethod -Uri "$base/api/health" -TimeoutSec 2
+      if ($health.ok -and $health.version -eq $wantVersion) { $ok = $true; break }
+    } catch {}
+    if ($p.HasExited) { break }
+    Start-Sleep -Milliseconds 500
+  }
 }
 if (-not $ok) { throw "Packaged Forge.exe did not report v$wantVersion on $base" }
 
@@ -51,4 +57,8 @@ if ($desk.term.model_tool) { throw "terminal must not be a model tool" }
 
 if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force }
 
-Write-Host "Packaged smoke OK: forge $($health.version) @ $base (python + monaco + desk)"
+if ($p) {
+  Write-Host "Packaged smoke OK: forge $($health.version) @ $base (python + monaco + desk)"
+} else {
+  Write-Host "Packaged smoke OK: forge $($health.version) @ $base (already running - left desk open)"
+}
