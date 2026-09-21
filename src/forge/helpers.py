@@ -252,11 +252,16 @@ def parse_plan_files(text: str) -> list[str]:
                         paths.append(token)
     out: list[str] = []
     for raw in paths:
-        rel = raw.replace("\\", "/").lstrip("./")
+        rel = raw.replace("\\", "/").strip()
+        while rel.startswith("./"):
+            rel = rel[2:]
+        rel = rel.strip("/")
         if not rel or rel.startswith("/") or ":" in rel:
             continue
-        if any(part == ".." for part in rel.split("/")):
+        parts = [part for part in rel.split("/") if part not in {"", "."}]
+        if not parts or any(part == ".." for part in parts):
             continue
+        rel = "/".join(parts)
         if rel not in out:
             out.append(rel)
     return out

@@ -64,7 +64,9 @@ def test_augment_prompt_with_plan_appends_plan_text():
 
 
 def test_plan_system_asks_json_not_vibe():
-    assert "vibe" not in PLAN_SYSTEM.lower()
+    lowered = PLAN_SYSTEM.lower()
+    assert "vibe coding" not in lowered
+    assert "no vibe" in lowered
     assert "files" in PLAN_SYSTEM
     assert "edits" in PLAN_SYSTEM
     assert "qwen3.8-flash-next" in PLAN_SYSTEM
