@@ -1141,6 +1141,24 @@ function isPlanDelta(ev) {
   return !!(ev && ev.phase === "plan");
 }
 
+function isCodingPhase(ev) {
+  return !!(ev && (ev.phase === "coding" || (ev.meta && ev.meta.phase === "coding")));
+}
+
+function isReviewPhase(ev) {
+  return !!(ev && (ev.phase === "review" || (ev.helper && ev.helper.helper === "review")));
+}
+
+function beginCodingPhase(bubble, bodyEl) {
+  if (bodyEl) bodyEl.textContent = "";
+  setThinkingBanner(bubble, "Coding…", "qwen3-coder-next:latest · inspect then diff");
+}
+
+function beginReviewPhase(bubble, metaEl) {
+  setThinkingBanner(bubble, "Review…", "Empero · pending diff");
+  if (metaEl) metaEl.textContent = "review · empero-35b-a3b:q4km";
+}
+
 function escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -1877,6 +1895,7 @@ async function sendEasy() {
   let intent = useCode ? "edit" : "ask";
   let inspecting = false;
   let planStreamed = false;
+  let streamedHelpers = new Set();
   try {
     const res = await fetch("/api/easy/stream", {
       method: "POST",
@@ -1904,15 +1923,26 @@ async function sendEasy() {
         setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail(ev.meta));
         return;
       }
+      if (isCodingPhase(ev)) {
+        beginCodingPhase(bubble, bodyEl);
+        planStreamed = false;
+        text = "";
+        return;
+      }
+      if (ev.phase === "review") {
+        beginReviewPhase(bubble, metaEl);
+        return;
+      }
       if (ev.meta) {
+        if (ev.meta.phase === "plan") return;
         intent = ev.meta.intent || ev.intent || intent;
         const meta = `${intent === "edit" ? "create" : "ask"} · ${ev.meta.model || ""}`.trim();
         if (metaEl && meta) metaEl.textContent = meta;
-        setThinkingBanner(
-          bubble,
-          intent === "edit" ? "Inspecting workspace…" : "Thinking…",
-          intent === "edit" ? "read · list · grep" : "capability answer"
-        );
+        if (intent === "edit" && !isPlanMeta(ev)) {
+          setThinkingBanner(bubble, "Coding…", "read · list · grep");
+        } else if (intent !== "edit") {
+          setThinkingBanner(bubble, "Thinking…", "capability answer");
+        }
       }
       if (ev.delta) {
         if (isPlanDelta(ev)) {
@@ -1929,7 +1959,7 @@ async function sendEasy() {
         }
         text += ev.delta;
         if (bodyEl) bodyEl.textContent = text;
-        setThinkingBanner(bubble, "Streaming…", metaEl ? metaEl.textContent : "response in progress");
+        setThinkingBanner(bubble, "Coding…", metaEl ? metaEl.textContent : "inspect then diff");
         scrollTranscript();
       }
       if (ev.tool) {
@@ -1950,7 +1980,13 @@ async function sendEasy() {
       }
       if (ev.error) throw new Error(ev.error);
       if (ev.helper) {
-        if (ev.helper.helper === "plan" && planStreamed) return;
+        const hid = ev.helper.helper || ev.helper.check;
+        if (hid === "plan" && planStreamed) {
+          streamedHelpers.add("plan");
+          return;
+        }
+        if (hid === "review") beginReviewPhase(bubble, metaEl);
+        if (hid) streamedHelpers.add(hid);
         showHelperBoards([ev.helper]);
       }
       if (ev.done && ev.text) text = ev.text;
@@ -1959,7 +1995,11 @@ async function sendEasy() {
       if (ev.done && ev.intent) intent = ev.intent;
       if (ev.done && ev.model && metaEl) metaEl.textContent = `${intent} · ${ev.model}`;
       if (ev.done && ev.helpers) {
-        const boards = (ev.helpers || []).filter((board) => !(board.helper === "plan" && planStreamed));
+        const boards = (ev.helpers || []).filter((board) => {
+          const hid = board.helper || board.check;
+          if (hid === "plan" && planStreamed) return false;
+          return !streamedHelpers.has(hid);
+        });
         if (boards.length) showHelperBoards(boards);
       }
     });
@@ -2015,6 +2055,7 @@ async function send(kind) {
   let hunks = null;
   let inspecting = false;
   let planStreamed = false;
+  let streamedHelpers = new Set();
   try {
     const res = await fetch(kind === "edit" ? "/api/edit/stream" : "/api/ask/stream", {
       method: "POST",
@@ -2039,9 +2080,21 @@ async function send(kind) {
         setThinkingBanner(bubble, "Planning on 5090 flash…", planFlashDetail(ev.meta));
         return;
       }
+      if (isCodingPhase(ev)) {
+        beginCodingPhase(bubble, bodyEl);
+        planStreamed = false;
+        text = "";
+        return;
+      }
+      if (ev.phase === "review") {
+        beginReviewPhase(bubble, metaEl);
+        return;
+      }
       if (ev.meta) {
+        if (ev.meta.phase === "plan") return;
         const meta = `${ev.meta.model || ""} · ${ev.meta.backend || ""} · ${ev.meta.gpu || ""}`.trim();
         if (metaEl && meta) metaEl.textContent = meta;
+        if (kind === "edit") setThinkingBanner(bubble, "Coding…", meta || "inspect then diff");
       }
       if (ev.delta) {
         if (isPlanDelta(ev)) {
@@ -2058,7 +2111,7 @@ async function send(kind) {
         }
         text += ev.delta;
         if (bodyEl) bodyEl.textContent = text;
-        setThinkingBanner(bubble, "Streaming…", metaEl ? metaEl.textContent : "response in progress");
+        setThinkingBanner(bubble, "Coding…", metaEl ? metaEl.textContent : "inspect then diff");
         scrollTranscript();
       }
       if (ev.tool) {
@@ -2080,7 +2133,13 @@ async function send(kind) {
       }
       if (ev.error) throw new Error(ev.error);
       if (ev.helper) {
-        if (ev.helper.helper === "plan" && planStreamed) return;
+        const hid = ev.helper.helper || ev.helper.check;
+        if (hid === "plan" && planStreamed) {
+          streamedHelpers.add("plan");
+          return;
+        }
+        if (hid === "review") beginReviewPhase(bubble, metaEl);
+        if (hid) streamedHelpers.add(hid);
         showHelperBoards([ev.helper]);
       }
       if (ev.done && ev.text) text = ev.text;
@@ -2094,7 +2153,11 @@ async function send(kind) {
         metaEl.textContent = `${ev.model} · ${ev.backend || ""} · ${ev.gpu || ""}`;
       }
       if (ev.done && ev.helpers) {
-        const boards = (ev.helpers || []).filter((board) => !(board.helper === "plan" && planStreamed));
+        const boards = (ev.helpers || []).filter((board) => {
+          const hid = board.helper || board.check;
+          if (hid === "plan" && planStreamed) return false;
+          return !streamedHelpers.has(hid);
+        });
         if (boards.length) showHelperBoards(boards);
       }
     });

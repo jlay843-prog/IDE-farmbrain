@@ -277,6 +277,17 @@ def run_check_helper(
     return _finalize_board(board)
 
 
+def has_pending_diff(edit_result: dict[str, Any]) -> bool:
+    """True when lead Edit returned a unified diff Jeff can review or apply."""
+    text = str(edit_result.get("text") or "").strip()
+    if not text:
+        return False
+    changes = edit_result.get("changes") or []
+    if changes:
+        return True
+    return "---" in text and "+++" in text
+
+
 def run_helpers(
     helper_ids: list[str],
     edit_result: dict[str, Any],
@@ -284,6 +295,7 @@ def run_helpers(
     files: list[str] | None = None,
     *,
     skip_flash_check: bool = False,
+    on_phase: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run post-edit helpers sequentially after lead Edit completes."""
     ordered: list[str] = []
@@ -296,6 +308,29 @@ def run_helpers(
     diff = edit_result.get("text") or ""
     changes = edit_result.get("changes") or []
     out: list[dict[str, Any]] = []
+    if not has_pending_diff(edit_result):
+        for hid in ordered:
+            if hid == "review":
+                out.append(
+                    _finalize_board(
+                        _board(
+                            "review",
+                            [_line("WARN", "review", "Skipped — lead edit produced no pending diff")],
+                            note="Plan → code → review; review waits for coder diff",
+                        )
+                    )
+                )
+            elif hid == "check":
+                out.append(
+                    _finalize_board(
+                        _board(
+                            "check",
+                            [_line("WARN", "flash", "Skipped — lead edit produced no pending diff")],
+                            note="Plan → code → check; check waits for coder diff",
+                        )
+                    )
+                )
+        return out
     for hid in ordered:
         if hid == "check" and skip_flash_check:
             out.append(
@@ -309,8 +344,12 @@ def run_helpers(
             )
             continue
         if hid == "review":
+            if on_phase:
+                on_phase({"phase": "review", "model": REVIEW_MODEL, "tier": REVIEW_TIER})
             out.append(run_review_helper(diff, prompt, files, changes=changes))
         elif hid == "check":
+            if on_phase:
+                on_phase({"phase": "check", "model": probe_flash_tag() or FLASH_MODEL, "tier": "flash"})
             out.append(run_check_helper(diff, prompt, files, changes=changes))
     return out
 
@@ -351,11 +390,23 @@ def attach_post_edit_helpers(
     pre_boards: list[dict[str, Any]],
     *,
     plan_used_flash: bool = False,
+    on_phase: Callable[[dict[str, Any]], None] | None = None,
+    on_helper: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     post_ids = [h for h in helper_ids if h and h != "plan"]
     boards = list(pre_boards)
     if post_ids:
-        boards.extend(run_helpers(post_ids, edit_result, prompt, files, skip_flash_check=plan_used_flash))
+        for board in run_helpers(
+            post_ids,
+            edit_result,
+            prompt,
+            files,
+            skip_flash_check=plan_used_flash,
+            on_phase=on_phase,
+        ):
+            boards.append(board)
+            if on_helper:
+                on_helper(board)
     if boards:
         edit_result["helpers"] = boards
     return edit_result

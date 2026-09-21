@@ -1,10 +1,13 @@
 from forge.flash import probe_flash_tag
 from forge.helpers import (
+    attach_post_edit_helpers,
     augment_prompt_with_plan,
+    has_pending_diff,
     helper_catalog,
     parse_review_board,
     run_check_helper,
     run_edit_helpers,
+    run_helpers,
     run_plan_helper,
     run_review_helper,
 )
@@ -60,6 +63,102 @@ def test_run_edit_helpers_without_live_flash(monkeypatch):
     assert used is False
     assert prompt == "add tests"
     assert boards and boards[0]["helper"] == "plan"
+
+
+def test_has_pending_diff_requires_unified_diff_or_changes():
+    assert has_pending_diff({"text": "", "changes": []}) is False
+    assert has_pending_diff({"text": "hello", "changes": []}) is False
+    assert has_pending_diff({"text": "--- a\n+++ b\n", "changes": []}) is True
+    assert has_pending_diff({"text": "x", "changes": [{"path": "a.py"}]}) is True
+
+
+def test_run_helpers_skips_review_without_pending_diff(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        "forge.helpers.run_review_helper",
+        lambda *args, **kwargs: called.append(True) or {"helper": "review", "result": "PASS", "lines": [], "board": ""},
+    )
+    boards = run_helpers(["review"], {"text": "prose only", "changes": []}, "hello")
+    assert not called
+    assert boards[0]["helper"] == "review"
+    assert "Skipped" in boards[0]["lines"][0]["detail"]
+
+
+def test_run_helpers_runs_review_after_pending_diff(monkeypatch):
+    called = []
+    phases = []
+
+    def fake_review(*_args, **_kwargs):
+        called.append(True)
+        return {"helper": "review", "result": "PASS", "lines": [], "board": ""}
+
+    monkeypatch.setattr("forge.helpers.run_review_helper", fake_review)
+    boards = run_helpers(
+        ["review"],
+        {"text": "--- a/foo.py\n+++ b/foo.py\n@@\n+x\n", "changes": [{"path": "foo.py"}]},
+        "hello",
+        on_phase=lambda payload: phases.append(payload),
+    )
+    assert called
+    assert phases and phases[0]["phase"] == "review"
+    assert boards[0]["helper"] == "review"
+
+
+def test_pipeline_plan_then_edit_then_review(monkeypatch):
+    order = []
+
+    def fake_plan(*_args, on_delta=None, on_begin=None, **_kwargs):
+        order.append("plan")
+        if on_begin:
+            on_begin({"phase": "plan"})
+        if on_delta:
+            on_delta("step")
+        return {
+            "helper": "plan",
+            "result": "PASS",
+            "text": "step one",
+            "lines": [],
+            "board": "",
+        }
+
+    def fake_review(*_args, **_kwargs):
+        order.append("review")
+        return {"helper": "review", "result": "PASS", "lines": [], "board": ""}
+
+    monkeypatch.setattr("forge.helpers.probe_flash_tag", lambda: "qwen3.8-flash-next")
+    monkeypatch.setattr("forge.helpers.run_plan_helper", fake_plan)
+    monkeypatch.setattr("forge.helpers.run_review_helper", fake_review)
+
+    edit_prompt, pre_boards, used = run_edit_helpers(
+        ["plan", "review"],
+        "crop code",
+        None,
+        on_plan_delta=lambda _d: None,
+        on_plan_begin=lambda _m: None,
+    )
+    assert order == ["plan"]
+    assert used is True
+    assert "PLAN (5090 flash" in edit_prompt
+
+    order.append("edit")
+    edit_result = {
+        "text": "--- a/crop.py\n+++ b/crop.py\n@@\n+x=1\n",
+        "changes": [{"path": "crop.py"}],
+    }
+    streamed = []
+
+    attach_post_edit_helpers(
+        ["plan", "review"],
+        edit_result,
+        "crop code",
+        None,
+        pre_boards,
+        plan_used_flash=True,
+        on_phase=lambda payload: streamed.append(payload.get("phase")),
+        on_helper=lambda board: streamed.append(board.get("helper")),
+    )
+    assert order == ["plan", "edit", "review"]
+    assert streamed == ["review", "review"]
 
 
 def test_run_plan_helper_streams_callbacks(monkeypatch):

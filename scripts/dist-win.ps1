@@ -3,6 +3,13 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
+try {
+  $live = Invoke-RestMethod -Uri "http://127.0.0.1:43180/api/health" -TimeoutSec 2
+  if ($live.ok) {
+    Write-Host 'Forge desk is open on 43180 - close it before packaging if electron-builder reports EBUSY on dist\win-unpacked.'
+  }
+} catch {}
+
 $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
 if (-not $env:ELECTRON_BUILDER_CACHE) {
   $env:ELECTRON_BUILDER_CACHE = Join-Path $Root ".eb-cache"

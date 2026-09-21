@@ -451,8 +451,18 @@ class Handler(BaseHTTPRequestHandler):
                     on_plan_delta=lambda delta: self._write_sse({"delta": delta, "phase": "plan"}),
                 )
                 for board in pre_boards:
-                    self._write_sse({"helper": board})
+                    self._write_sse({"helper": board, "phase": "plan"})
             if routed == "edit":
+                self._write_sse(
+                    {
+                        "phase": "coding",
+                        "meta": {
+                            "phase": "coding",
+                            "tier": body.get("tier"),
+                            "model": body.get("model"),
+                        },
+                    }
+                )
                 result = run_edit(
                     edit_prompt,
                     files,
@@ -486,6 +496,10 @@ class Handler(BaseHTTPRequestHandler):
                     files,
                     pre_boards,
                     plan_used_flash=plan_used_flash,
+                    on_phase=lambda payload: self._write_sse(payload),
+                    on_helper=lambda board: self._write_sse(
+                        {"helper": board, "phase": board.get("helper") or board.get("check")}
+                    ),
                 )
             if routed == "edit":
                 maybe_save_edit_pending(prompt, result)
