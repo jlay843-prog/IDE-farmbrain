@@ -45,7 +45,7 @@ if (-not $health.monaco.ok) { throw "packaged monaco vendor missing" }
 $monacoLoader = Invoke-WebRequest -Uri "$base/vendor/monaco-editor/min/vs/loader.js" -UseBasicParsing -TimeoutSec 5
 if ($monacoLoader.StatusCode -ne 200) { throw "packaged monaco loader not served from loopback" }
 
-$desk = Invoke-RestMethod -Uri "$base/api/desk" -TimeoutSec 5
+$desk = Invoke-RestMethod -Uri "$base/api/desk" -TimeoutSec 30
 if (-not $desk.ok) { throw "packaged desk bootstrap failed" }
 if ($desk.term.model_tool) { throw "terminal must not be a model tool" }
 

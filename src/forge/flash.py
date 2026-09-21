@@ -9,6 +9,7 @@ import base64
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,8 @@ FLASH_MODEL = "qwen3.8-flash-next"
 FLASH_BASE = f"http://{TOWER}:11435"
 FLASH_MODELS_URL = f"{FLASH_BASE}/v1/models"
 FLASH_CHAT_URL = f"{FLASH_BASE}/v1/chat/completions"
+_PROBE_CACHE: tuple[float, tuple[bool, list[str], str]] | None = None
+_PROBE_TTL_S = 30.0
 
 
 def _ssh_key() -> str:
@@ -63,12 +66,18 @@ def _parse_model_ids(body: Any) -> list[str]:
     return [x for x in out if x]
 
 
-def probe_flash_models() -> tuple[bool, list[str], str]:
+def probe_flash_models(*, force: bool = False) -> tuple[bool, list[str], str]:
     """Return (ok, model_ids, via) for live Flash-Next on tower :11435."""
-    code, body = request_json(FLASH_MODELS_URL, timeout=4.0)
+    global _PROBE_CACHE
+    now = time.monotonic()
+    if not force and _PROBE_CACHE and now - _PROBE_CACHE[0] < _PROBE_TTL_S:
+        return _PROBE_CACHE[1]
+    code, body = request_json(FLASH_MODELS_URL, timeout=2.0)
     ids = _parse_model_ids(body)
     if code == 200 and any(FLASH_MODEL in x for x in ids):
-        return True, ids, "direct"
+        result = True, ids, "direct"
+        _PROBE_CACHE = (now, result)
+        return result
     ok, out = _ssh_run(
         EVO,
         "curl -s --max-time 5 http://192.168.68.106:11435/v1/models "
@@ -80,10 +89,16 @@ def probe_flash_models() -> tuple[bool, list[str], str]:
     if ok and out and "Permission denied" not in out:
         ids = [x for x in out.replace("\n", ",").split(",") if x.strip()]
         if any(FLASH_MODEL in x for x in ids):
-            return True, ids, "evo-ssh"
+            result = True, ids, "evo-ssh"
+            _PROBE_CACHE = (now, result)
+            return result
         if FLASH_MODEL in out:
-            return True, [FLASH_MODEL], "evo-ssh"
-    return False, ids, "direct" if code else "evo-ssh"
+            result = True, [FLASH_MODEL], "evo-ssh"
+            _PROBE_CACHE = (now, result)
+            return result
+    result = False, ids, "direct" if code else "evo-ssh"
+    _PROBE_CACHE = (now, result)
+    return result
 
 
 def probe_flash_tag() -> str | None:
