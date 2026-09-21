@@ -1,9 +1,13 @@
 from forge.flash import probe_flash_tag
 from forge.helpers import (
+    PLAN_IMPLEMENT,
+    PLAN_SYSTEM,
     attach_post_edit_helpers,
     augment_prompt_with_plan,
     has_pending_diff,
     helper_catalog,
+    named_files_for_plan,
+    parse_plan_files,
     parse_review_board,
     run_check_helper,
     run_edit_helpers,
@@ -55,6 +59,35 @@ def test_augment_prompt_with_plan_appends_plan_text():
     augmented = augment_prompt_with_plan("add tests", {"text": "step one\nstep two"})
     assert "PLAN (5090 flash" in augmented
     assert "step one" in augmented
+    assert PLAN_IMPLEMENT in augmented
+    assert "unified diff" in augmented.lower()
+
+
+def test_plan_system_asks_json_not_vibe():
+    assert "vibe" not in PLAN_SYSTEM.lower()
+    assert "files" in PLAN_SYSTEM
+    assert "edits" in PLAN_SYSTEM
+    assert "qwen3.8-flash-next" in PLAN_SYSTEM
+
+
+def test_parse_plan_files_from_json_and_edits():
+    text = '{"goal": "greet", "files": ["notes.txt"], "edits": [{"path": "src/hello.py", "change": "rename"}]}'
+    assert parse_plan_files(text) == ["notes.txt", "src/hello.py"]
+    fenced = "```json\n" + text + "\n```"
+    assert parse_plan_files(fenced) == ["notes.txt", "src/hello.py"]
+    assert parse_plan_files("FILES: notes.txt, src/hello.py") == ["notes.txt", "src/hello.py"]
+    assert parse_plan_files('{"files": ["../escape.txt"]}') == []
+    assert parse_plan_files('{"files": ["C:\\\\abs.txt"]}') == []
+
+
+def test_named_files_for_plan_keeps_existing_workspace_paths(tmp_path):
+    root = tmp_path / "proj"
+    (root / "src").mkdir(parents=True)
+    (root / "notes.txt").write_text("hello farm\n", encoding="utf-8")
+    (root / "src" / "hello.py").write_text("x = 1\n", encoding="utf-8")
+    plan = {"text": '{"files": ["notes.txt", "missing.py"], "edits": [{"path": "src/hello.py"}]}'}
+    out = named_files_for_plan([], plan, workspace=root)
+    assert out == ["notes.txt", "src/hello.py"]
 
 
 def test_run_edit_helpers_without_live_flash(monkeypatch):

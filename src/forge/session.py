@@ -37,6 +37,11 @@ EASY_ASK_TOOL_NUDGE = (
     "This chat turn is for questions and planning. Describe what to create or change "
     "and Forge will return a diff for you to Accept."
 )
+DIFF_REQUIRE = (
+    "Your last reply had no unified diff, so Review/Check cannot run. "
+    "Emit only a unified diff implementing the plan (--- a/ +++ b/ @@). "
+    "No JSON, no plan reprint, no TOOL_OK, no prose-only."
+)
 
 
 class SessionError(RuntimeError):
@@ -150,6 +155,33 @@ def _one_turn(
     return {"text": "".join(parts), "model": model, "done": True, "raw": raw, "tool_calls": tool_calls}
 
 
+def _finish_generate(
+    sess: dict[str, Any],
+    messages: list[dict[str, str]],
+    last: dict[str, Any],
+    traces: list[dict[str, Any]],
+    tool_rounds: int,
+    use_tools: bool,
+    require_diff: bool,
+    on_delta: DeltaFn | None,
+) -> dict[str, Any]:
+    if use_tools:
+        last["text"] = strip_tool_markup(last.get("text") or "")
+    last["tools"] = traces
+    last["tool_rounds"] = tool_rounds
+    if not require_diff or change_list(last.get("text") or ""):
+        return last
+    messages.append({"role": "assistant", "content": (last.get("text") or "")[:2000] or "(no diff)"})
+    messages.append({"role": "user", "content": DIFF_REQUIRE})
+    last = _one_turn(sess, messages, tools=None, on_delta=on_delta)
+    if use_tools:
+        last["text"] = strip_tool_markup(last.get("text") or "")
+    last["tools"] = traces
+    last["tool_rounds"] = tool_rounds
+    last["diff_retry"] = True
+    return last
+
+
 def _generate(
     sess: dict[str, Any],
     system: str,
@@ -158,6 +190,7 @@ def _generate(
     *,
     workspace: Path | None = None,
     use_tools: bool = False,
+    require_diff: bool = False,
     history: list | None = None,
     on_begin: BeginFn | None = None,
     on_delta: DeltaFn | None = None,
@@ -202,7 +235,11 @@ def _generate(
                     "role": "user",
                     "content": (
                         "Tool results (read/list/grep only; there is no shell). "
-                        "Return a unified diff, or another read/list/grep call.\n\n"
+                        + (
+                            "Return a unified diff that implements the plan, or another read/list/grep call.\n\n"
+                            if require_diff
+                            else "Return a unified diff, or another read/list/grep call.\n\n"
+                        )
                         + "\n\n".join(blobs)
                     ),
                 }
@@ -222,15 +259,9 @@ def _generate(
                 }
             )
             continue
-        if use_tools:
-            last["text"] = strip_tool_markup(last.get("text") or "")
-        last["tools"] = traces
-        last["tool_rounds"] = tool_rounds
+        last = _finish_generate(sess, messages, last, traces, tool_rounds, use_tools, require_diff, on_delta)
         return last
-    if use_tools:
-        last["text"] = strip_tool_markup(last.get("text") or "")
-    last["tools"] = traces
-    last["tool_rounds"] = tool_rounds
+    last = _finish_generate(sess, messages, last, traces, tool_rounds, use_tools, require_diff, on_delta)
     return last
 
 
@@ -276,6 +307,7 @@ def run_edit(
     workspace: Path | None = None,
     history: list | None = None,
     easy: bool = False,
+    require_diff: bool = False,
     on_begin: BeginFn | None = None,
     on_delta: DeltaFn | None = None,
     on_tool: ToolFn | None = None,
@@ -297,6 +329,7 @@ def run_edit(
         named,
         workspace=root,
         use_tools=True,
+        require_diff=require_diff,
         history=history,
         on_begin=on_begin,
         on_delta=on_delta,
@@ -316,6 +349,7 @@ def run_edit(
         "hunks": hunk_list(reply["text"]),
         "tools": reply.get("tools") or [],
         "tool_rounds": int(reply.get("tool_rounds") or 0),
+        "diff_retry": bool(reply.get("diff_retry")),
         "applied": False,
         "changed": [],
         "protected": is_protected_workspace(root),

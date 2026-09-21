@@ -483,6 +483,10 @@ def test_log_turn_records_helper_ids(tmp_path, monkeypatch):
     rows = read_turns(limit=5)
     assert rows[0]["helpers"] == ["plan", "review"]
     assert rows[0]["helper_results"] == ["PASS", "WARN"]
+    assert rows[0]["tool_rounds"] is None
+    assert rows[0]["changes_n"] == 0
+    assert rows[0]["has_diff"] is False
+    assert rows[0]["diff_retry"] is False
 
 
 def test_log_cli_empty(tmp_path, monkeypatch, capsys):

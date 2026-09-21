@@ -33,7 +33,12 @@ from forge.probe import mesh_snapshot, models_snapshot, resolve_session, status_
 from forge.recipes import RECIPES, get_recipe
 from forge.easy import classify_easy_prompt
 from forge.flash import FLASH_MODEL, probe_flash_tag
-from forge.helpers import attach_post_edit_helpers, helper_catalog, run_edit_helpers
+from forge.helpers import (
+    attach_post_edit_helpers,
+    helper_catalog,
+    named_files_for_plan,
+    run_edit_helpers,
+)
 from forge.llm import ollama_tool_xml_error
 from forge.project import create_project, sanitize_project_name
 from forge.session import SessionError, run_ask, run_edit
@@ -216,20 +221,24 @@ def _dispatch(method: str, path: str, query: dict, body: dict) -> tuple[int, byt
                 body.get("files") or [],
                 history=body.get("history"),
             )
+        files = body.get("files") or []
+        if plan_used_flash and pre_boards:
+            files = named_files_for_plan(files, pre_boards[0], workspace=workspace_path())
         result = run_edit(
             edit_prompt,
-            body.get("files") or [],
+            files,
             apply=False,
             tier=body.get("tier"),
             model=body.get("model"),
             history=body.get("history"),
+            require_diff=plan_used_flash,
         )
         if helpers:
             result = attach_post_edit_helpers(
                 helpers,
                 result,
                 body.get("prompt") or "",
-                body.get("files") or [],
+                files,
                 pre_boards,
                 plan_used_flash=plan_used_flash,
             )
@@ -486,6 +495,8 @@ class Handler(BaseHTTPRequestHandler):
                     on_plan_begin=lambda meta: self._write_sse({"meta": meta}),
                     on_plan_delta=lambda delta: self._write_sse({"delta": delta, "phase": "plan"}),
                 )
+                if plan_used_flash and pre_boards:
+                    files = named_files_for_plan(files, pre_boards[0], workspace=workspace_path())
                 for board in pre_boards:
                     self._write_sse({"helper": board, "phase": "plan"})
             if routed == "edit":
@@ -508,6 +519,7 @@ class Handler(BaseHTTPRequestHandler):
                     model=body.get("model"),
                     history=history,
                     easy=easy,
+                    require_diff=plan_used_flash,
                     on_begin=on_begin,
                     on_delta=on_delta,
                     on_tool=on_tool,

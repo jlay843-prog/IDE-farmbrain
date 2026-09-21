@@ -26,7 +26,7 @@ from forge.probe import (
 )
 from forge.recipes import RECIPES, get_recipe
 from forge.compare import run_compare
-from forge.helpers import attach_post_edit_helpers, run_edit_helpers
+from forge.helpers import attach_post_edit_helpers, named_files_for_plan, run_edit_helpers
 from forge.git import commit as git_commit
 from forge.git import diff_for as git_diff
 from forge.git import snapshot as git_snapshot
@@ -314,19 +314,23 @@ def cmd_edit(args: argparse.Namespace) -> int:
     edit_prompt = args.prompt
     pre_boards: list = []
     plan_used_flash = False
+    named_files = list(args.file or [])
     if helpers:
         edit_prompt, pre_boards, plan_used_flash = run_edit_helpers(helpers, args.prompt, args.file)
         for board in pre_boards:
             if board.get("helper") == "plan":
                 out("")
                 out(format_board(board))
+                if plan_used_flash:
+                    named_files = named_files_for_plan(named_files, board)
     try:
         result = run_edit(
             edit_prompt,
-            args.file,
+            named_files,
             apply=False,
             tier=args.tier,
             model=args.model,
+            require_diff=plan_used_flash,
             on_begin=_stream_begin(json_mode),
             on_delta=_stream_delta(json_mode),
             on_tool=_stream_tool(json_mode),
@@ -356,7 +360,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
             helpers,
             result,
             args.prompt,
-            args.file,
+            named_files,
             pre_boards,
             plan_used_flash=plan_used_flash,
         )

@@ -305,3 +305,82 @@ def test_edit_nudges_when_model_stalls_without_tools(tmp_path: Path, monkeypatch
     assert out["tool_rounds"] == 1
     assert [t["name"] for t in out["tools"]] == ["read"]
     assert [row["path"] for row in out["changes"]] == ["src/hello.py"]
+
+
+DIFF_HELLO = (
+    "--- a/src/hello.py\n"
+    "+++ b/src/hello.py\n"
+    "@@ -1,2 +1,2 @@\n"
+    " def hello():\n"
+    "-    return 'hi'\n"
+    "+    return 'hello'\n"
+)
+
+
+def _edit_session(monkeypatch, fake_chat):
+    monkeypatch.setattr(
+        "forge.session.active_session",
+        lambda *a, **k: {
+            "tier": "code",
+            "model": "qwen3-coder-next:latest",
+            "base": "http://127.0.0.1:9",
+            "blocked": False,
+            "backend": {"id": "amd", "label": "EVO AMD", "gpu": "GTT", "ok": True},
+        },
+    )
+    monkeypatch.setattr("forge.session.chat", fake_chat)
+
+
+def test_edit_require_diff_retries_after_inspect_prose(tmp_path: Path, monkeypatch):
+    root = _proj(tmp_path)
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    set_workspace(root)
+    monkeypatch.setattr("forge.session.MAX_ROUNDS", 1)
+    seen = {"n": 0}
+
+    def fake_chat(_base, model, messages, tools=None, **_kwargs):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return {
+                "text": '<tool name="read">{"path": "src/hello.py"}</tool>',
+                "model": model,
+                "done": True,
+                "raw": {},
+                "tool_calls": [],
+            }
+        if seen["n"] == 2:
+            return {
+                "text": "Inspected hello.py. Ready when you are.",
+                "model": model,
+                "done": True,
+                "raw": {},
+                "tool_calls": [],
+            }
+        assert "unified diff" in (messages[-1].get("content") or "").lower()
+        assert tools is None
+        return {"text": DIFF_HELLO, "model": model, "done": True, "raw": {}, "tool_calls": []}
+
+    _edit_session(monkeypatch, fake_chat)
+    out = run_edit("rename greeting", [], workspace=root, require_diff=True)
+    assert seen["n"] == 3
+    assert out["diff_retry"] is True
+    assert [row["path"] for row in out["changes"]] == ["src/hello.py"]
+    assert out["applied"] is False
+
+
+def test_edit_require_diff_skips_retry_when_diff_already_present(tmp_path: Path, monkeypatch):
+    root = _proj(tmp_path)
+    monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
+    set_workspace(root)
+    monkeypatch.setattr("forge.session.MAX_ROUNDS", 0)
+    seen = {"n": 0}
+
+    def fake_chat(_base, model, _messages, tools=None, **_kwargs):
+        seen["n"] += 1
+        return {"text": DIFF_HELLO, "model": model, "done": True, "raw": {}, "tool_calls": []}
+
+    _edit_session(monkeypatch, fake_chat)
+    out = run_edit("rename greeting", [], workspace=root, require_diff=True)
+    assert seen["n"] == 1
+    assert out["diff_retry"] is False
+    assert out["changes"]

@@ -7,23 +7,36 @@ check:  5090 flash check after edit — skipped when plan already used the 5090.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from forge.checks import format_board
+from forge.context import resolve_under
 from forge.flash import FLASH_MODEL, flash_chat, probe_flash_tag
 from forge.llm import chat
 from forge.session import SessionError, active_session
+from forge.state import workspace_path
 
 REVIEW_MODEL = "empero-35b-a3b:q4km"
 REVIEW_TIER = "code"
 DEFAULT_CODE_MODEL = "qwen3-coder-next:latest"
 
 PLAN_SYSTEM = (
-    "You are the Forge planning model on the tower 5090 flash slot. "
-    "Jeff wants a concise implementation plan for vibe coding — no unified diff, no file contents. "
-    "List steps, files to touch, risks, and acceptance checks. Stay under ~40 lines."
+    "You are the Forge planning model on tower 5090 flash (qwen3.8-flash-next). "
+    "Reply with implementable JSON only — no markdown fence, no vibe, no unified diff, no slogans. "
+    "Required keys: goal (one sentence), files (array of exact relative paths — never 'the codebase'), "
+    "edits (array of objects with path and change: function/symbol and what to change), "
+    "tests (array of short checks), risks (array). "
+    "If the user already sketched plan JSON, fill missing paths and edits; do not replace it with vague bullets."
+)
+
+PLAN_IMPLEMENT = (
+    "After inspect (read/list/grep), emit ONE unified diff (--- a/ +++ b/ @@ hunks) that performs those file edits. "
+    "Do not reply with JSON, a new plan, TOOL_OK, or prose-only. "
+    "Create missing files with --- /dev/null and +++ b/relative/path."
 )
 
 _PASS_RE = re.compile(r"^\s*(PASS|FAIL|WARN)\b", re.I)
@@ -185,14 +198,102 @@ def run_plan_helper(
     return _finalize_board(board)
 
 
+_PLAN_JSON_RE = re.compile(r"\{[\s\S]*\}")
+
+
+def parse_plan_files(text: str) -> list[str]:
+    """Relative paths from plan JSON files[] / edits[].path. Drops abs, drive, and .. paths."""
+    blob = (text or "").strip()
+    if not blob:
+        return []
+    data: Any = None
+    candidate = blob
+    if "```" in candidate:
+        for chunk in candidate.split("```"):
+            body = chunk.strip()
+            if body.lower().startswith("json"):
+                body = body[4:].lstrip()
+            if body.startswith("{"):
+                candidate = body
+                break
+    try:
+        data = json.loads(candidate)
+    except json.JSONDecodeError:
+        hit = _PLAN_JSON_RE.search(blob)
+        if hit:
+            try:
+                data = json.loads(hit.group(0))
+            except json.JSONDecodeError:
+                data = None
+    paths: list[str] = []
+    if isinstance(data, dict):
+        files = data.get("files") or []
+        if isinstance(files, str):
+            files = [files]
+        if isinstance(files, list):
+            for item in files:
+                if isinstance(item, str) and item.strip():
+                    paths.append(item.strip())
+                elif isinstance(item, dict) and item.get("path"):
+                    paths.append(str(item["path"]).strip())
+        edits = data.get("edits") or []
+        if isinstance(edits, list):
+            for item in edits:
+                if isinstance(item, dict) and item.get("path"):
+                    paths.append(str(item["path"]).strip())
+    else:
+        for line in blob.splitlines():
+            stripped = line.strip()
+            if stripped.upper().startswith("FILES:"):
+                rest = stripped.split(":", 1)[-1]
+                for part in rest.split(","):
+                    token = part.strip().strip("- ")
+                    if token:
+                        paths.append(token)
+    out: list[str] = []
+    for raw in paths:
+        rel = raw.replace("\\", "/").lstrip("./")
+        if not rel or rel.startswith("/") or ":" in rel:
+            continue
+        if any(part == ".." for part in rel.split("/")):
+            continue
+        if rel not in out:
+            out.append(rel)
+    return out
+
+
+def named_files_for_plan(
+    files: list[str] | None,
+    plan_board: dict[str, Any],
+    *,
+    workspace: Path | None = None,
+) -> list[str]:
+    """Keep Jeff's named files; add plan paths that already exist under the workspace."""
+    out = [item for item in (files or []) if item]
+    root = workspace if workspace is not None else workspace_path()
+    if root is None:
+        return out
+    for rel in parse_plan_files(str(plan_board.get("text") or "")):
+        if rel in out:
+            continue
+        try:
+            path = resolve_under(root, rel)
+        except ValueError:
+            continue
+        if path.is_file():
+            out.append(rel)
+    return out
+
+
 def augment_prompt_with_plan(prompt: str, plan_board: dict[str, Any]) -> str:
     plan_text = (plan_board.get("text") or "").strip()
     if not plan_text:
         return prompt
     return (
         f"{prompt}\n\n"
-        "PLAN (5090 flash — follow this when editing; do not repeat the plan in the diff):\n"
-        f"{plan_text[:8000]}"
+        "PLAN (5090 flash — implement this; do not reprint the plan):\n"
+        f"{plan_text[:8000]}\n\n"
+        f"{PLAN_IMPLEMENT}"
     )
 
 

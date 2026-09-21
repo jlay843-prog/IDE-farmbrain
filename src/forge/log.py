@@ -37,6 +37,11 @@ def log_turn(kind: str, result: dict[str, Any], prompt: str = "") -> None:
         "prompt": (prompt or "")[:240],
         "helpers": [h for h in helper_ids if h],
         "helper_results": helper_results,
+        "tool_rounds": result.get("tool_rounds"),
+        "changes_n": len(result.get("changes") or []),
+        "has_diff": bool(result.get("changes"))
+        or ("---" in str(result.get("text") or "") and "+++" in str(result.get("text") or "")),
+        "diff_retry": bool(result.get("diff_retry")),
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, default=str) + "\n")
