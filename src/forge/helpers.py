@@ -2,6 +2,7 @@
 
 plan:   5090 flash plans first (Ask-only, no files) then coder-next edits.
 review: Empero on AMD reviews the pending diff (Ask-only PASS/FAIL/WARN board).
+assure: local defensive scan of the pending diff (Ask-only; no exploits/payloads).
 check:  5090 flash check after edit — skipped when plan already used the 5090.
 """
 
@@ -22,7 +23,37 @@ from forge.state import workspace_path
 
 REVIEW_MODEL = "empero-35b-a3b:q4km"
 REVIEW_TIER = "code"
+ASSURE_MODEL = "local"
+ASSURE_TIER = "local"
 DEFAULT_CODE_MODEL = "qwen3-coder-next:latest"
+
+_DUMMY_SECRET_VALUES = {
+    "changeme",
+    "dummy",
+    "example",
+    "password",
+    "placeholder",
+    "secret",
+    "todo",
+    "token",
+    "xxx",
+    "your-token-here",
+}
+_SECRET_ASSIGN_RE = re.compile(
+    r"(?i)\b(api[_-]?key|access[_-]?key|auth[_-]?token|password|passwd|private[_-]?key|secret|token)\b"
+    r".{0,40}[=:].{0,12}(['\"])([^'\"]{8,})\2"
+)
+_AWS_KEY_RE = re.compile(r"AKIA[0-9A-Z]{16}")
+_PEM_HEADER_RE = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
+_TELEGRAM_TOKEN_RE = re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{30,}\b")
+_SHELL_TRUE_RE = re.compile(r"shell\s*=\s*True")
+_OS_SYSTEM_RE = re.compile(r"\bos\.system\s*\(")
+_EVAL_EXEC_RE = re.compile(r"\b(?:eval|exec)\s*\(")
+_PICKLE_RE = re.compile(r"\bpickle\.loads?\s*\(")
+_VERIFY_FALSE_RE = re.compile(r"verify\s*=\s*False|CERT_NONE")
+_STOP_FORGE_RE = re.compile(r"(?i)(?:Stop-Process\b.*\bForge\b|taskkill\b.*\bForge\.exe\b)")
+_BIND_ALL_RE = re.compile(r"0\.0\.0\.0")
+_TRAVERSAL_RE = re.compile(r"(?:^|[/\\])\.\.(?:[/\\]|$)")
 
 PLAN_SYSTEM = (
     "You are the Forge planning model on tower 5090 flash (qwen3.8-flash-next). "
@@ -63,6 +94,15 @@ def helper_catalog() -> list[dict[str, Any]]:
         "status": "ready",
         "message": "",
     }
+    assure = {
+        "id": "assure",
+        "label": "Assure (defensive)",
+        "model": ASSURE_MODEL,
+        "tier": ASSURE_TIER,
+        "enabled": True,
+        "status": "ready",
+        "message": "",
+    }
     check = {
         "id": "check",
         "label": "5090 flash check",
@@ -72,7 +112,7 @@ def helper_catalog() -> list[dict[str, Any]]:
         "status": "ready" if flash_tag else "warn",
         "message": "" if flash_tag else "flash not reachable on :11435",
     }
-    return [plan, review, check]
+    return [plan, review, assure, check]
 
 
 def _line(mark: str, label: str, detail: str) -> dict[str, str]:
@@ -383,6 +423,128 @@ def run_check_helper(
     return _finalize_board(board)
 
 
+def _redact_secret(value: str) -> str:
+    text = (value or "").strip().strip("\"'")
+    if len(text) <= 4:
+        return "***"
+    return f"{text[:2]}***{text[-1]}"
+
+
+def _added_diff_lines(diff: str) -> list[tuple[str, str]]:
+    """(path, added_line) for unified-diff plus lines. Ignores +++ headers."""
+    path = ""
+    out: list[tuple[str, str]] = []
+    for raw in (diff or "").splitlines():
+        if raw.startswith("+++ "):
+            rest = raw[4:].strip()
+            if rest.startswith("b/"):
+                rest = rest[2:]
+            path = rest
+            continue
+        if raw.startswith("+") and not raw.startswith("+++"):
+            out.append((path, raw[1:]))
+    return out
+
+
+def _diff_new_paths(diff: str) -> list[str]:
+    paths: list[str] = []
+    for raw in (diff or "").splitlines():
+        if not raw.startswith("+++ "):
+            continue
+        rest = raw[4:].strip()
+        if rest.startswith("b/"):
+            rest = rest[2:]
+        if rest and rest != "/dev/null" and rest not in paths:
+            paths.append(rest)
+    return paths
+
+
+def scan_pending_diff(diff: str) -> list[dict[str, str]]:
+    """Defensive findings on added lines only. Never returns exploits or payloads."""
+    findings: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def add(mark: str, label: str, detail: str) -> None:
+        key = (mark, label, detail)
+        if key in seen:
+            return
+        seen.add(key)
+        findings.append(_line(mark, label, detail))
+
+    for path in _diff_new_paths(diff):
+        if _TRAVERSAL_RE.search(path.replace("\\", "/")) or path.startswith("/") or (len(path) >= 2 and path[1] == ":"):
+            add("FAIL", "path", f"{path}: new path leaves the workspace")
+
+    for path, line in _added_diff_lines(diff):
+        loc = path or "diff"
+        if _PEM_HEADER_RE.search(line):
+            add("FAIL", "secrets", f"{loc}: private key material in added line")
+            continue
+        aws = _AWS_KEY_RE.search(line)
+        if aws:
+            add("FAIL", "secrets", f"{loc}: cloud access key {_redact_secret(aws.group(0))}")
+        tg = _TELEGRAM_TOKEN_RE.search(line)
+        if tg:
+            add("FAIL", "secrets", f"{loc}: bot token {_redact_secret(tg.group(0))}")
+        assign = _SECRET_ASSIGN_RE.search(line)
+        if assign:
+            value = assign.group(3)
+            if value.strip().lower() not in _DUMMY_SECRET_VALUES:
+                add("FAIL", "secrets", f"{loc}: {assign.group(1)}={_redact_secret(value)}")
+        if _SHELL_TRUE_RE.search(line) or _OS_SYSTEM_RE.search(line):
+            add("WARN", "injection", f"{loc}: shell command from untrusted input")
+        if _EVAL_EXEC_RE.search(line):
+            add("WARN", "injection", f"{loc}: dynamic eval/exec")
+        if _PICKLE_RE.search(line):
+            add("WARN", "injection", f"{loc}: pickle load of untrusted bytes")
+        if _VERIFY_FALSE_RE.search(line):
+            add("WARN", "tls", f"{loc}: TLS verification disabled")
+        if _STOP_FORGE_RE.search(line):
+            add("WARN", "process", f"{loc}: stops the live Forge desk")
+        if _BIND_ALL_RE.search(line):
+            add("WARN", "bind", f"{loc}: listen on all interfaces (Forge is loopback-only)")
+        if _TRAVERSAL_RE.search(line.replace("\\", "/")):
+            add("FAIL", "path", f"{loc}: parent-directory path in added line")
+    return findings
+
+
+def run_assure_helper(
+    diff: str,
+    prompt: str,
+    files: list[str] | None = None,
+    *,
+    changes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Local defensive scan — Ask-only board, no apply, no attack procedures."""
+    if not (diff or "").strip():
+        board = _board(
+            "assure",
+            [_line("WARN", "assure", "No pending diff to assure")],
+            note="Ask-only defensive scan — not applied. No exploits.",
+        )
+        board["model"] = ASSURE_MODEL
+        board["tier"] = ASSURE_TIER
+        return _finalize_board(board)
+    lines = scan_pending_diff(diff)
+    extra_paths = [str(item) for item in (files or []) if item]
+    extra_paths.extend(str(c.get("path") or "") for c in (changes or []) if c.get("path"))
+    for path in extra_paths:
+        if _TRAVERSAL_RE.search(path.replace("\\", "/")) or path.startswith("/") or (len(path) >= 2 and path[1] == ":"):
+            lines.append(_line("FAIL", "path", f"{path}: named path leaves the workspace"))
+    if not lines:
+        lines = [_line("PASS", "assure", "No defensive findings on added lines")]
+    board = _board(
+        "assure",
+        lines,
+        note="Ask-only defensive scan of pending diff — not applied. No exploits.",
+    )
+    board["model"] = ASSURE_MODEL
+    board["backend"] = "local"
+    board["gpu"] = ""
+    board["tier"] = ASSURE_TIER
+    return _finalize_board(board)
+
+
 def has_pending_diff(edit_result: dict[str, Any]) -> bool:
     """True when lead Edit returned a unified diff Jeff can review or apply."""
     text = str(edit_result.get("text") or "").strip()
@@ -405,7 +567,7 @@ def run_helpers(
 ) -> list[dict[str, Any]]:
     """Run post-edit helpers sequentially after lead Edit completes."""
     ordered: list[str] = []
-    for hid in ("review", "check"):
+    for hid in ("review", "assure", "check"):
         if hid in helper_ids:
             ordered.append(hid)
     for hid in helper_ids:
@@ -423,6 +585,16 @@ def run_helpers(
                             "review",
                             [_line("WARN", "review", "Skipped — lead edit produced no pending diff")],
                             note="Plan → code → review; review waits for coder diff",
+                        )
+                    )
+                )
+            elif hid == "assure":
+                out.append(
+                    _finalize_board(
+                        _board(
+                            "assure",
+                            [_line("WARN", "assure", "Skipped — lead edit produced no pending diff")],
+                            note="Plan → code → assure; assure waits for coder diff",
                         )
                     )
                 )
@@ -453,6 +625,10 @@ def run_helpers(
             if on_phase:
                 on_phase({"phase": "review", "model": REVIEW_MODEL, "tier": REVIEW_TIER})
             out.append(run_review_helper(diff, prompt, files, changes=changes))
+        elif hid == "assure":
+            if on_phase:
+                on_phase({"phase": "assure", "model": ASSURE_MODEL, "tier": ASSURE_TIER})
+            out.append(run_assure_helper(diff, prompt, files, changes=changes))
         elif hid == "check":
             if on_phase:
                 on_phase({"phase": "check", "model": probe_flash_tag() or FLASH_MODEL, "tier": "flash"})

@@ -395,9 +395,11 @@ function selectedHelpers() {
   const out = [];
   const plan = $("#helperPlan");
   const review = $("#helperReview");
+  const assure = $("#helperAssure");
   const check = $("#helperCheck");
   if (plan && plan.checked && !plan.disabled) out.push("plan");
   if (review && review.checked) out.push("review");
+  if (assure && assure.checked) out.push("assure");
   if (check && check.checked && !check.disabled) out.push("check");
   return out;
 }
@@ -1151,6 +1153,10 @@ function isReviewPhase(ev) {
   return !!(ev && ev.phase === "review" && !ev.alive && !ev.helper);
 }
 
+function isAssurePhase(ev) {
+  return !!(ev && ev.phase === "assure" && !ev.alive && !ev.helper);
+}
+
 function ensurePlanBlock(bubble, planText) {
   const text = String(planText || "").trim();
   if (!bubble || !text) return;
@@ -1174,6 +1180,11 @@ function beginCodingPhase(bubble, bodyEl, opts = {}) {
 function beginReviewPhase(bubble, metaEl) {
   setThinkingBanner(bubble, "Review…", "Empero · pending diff");
   if (metaEl) metaEl.textContent = "review · empero-35b-a3b:q4km";
+}
+
+function beginAssurePhase(bubble, metaEl) {
+  setThinkingBanner(bubble, "Assure…", "local · pending diff");
+  if (metaEl) metaEl.textContent = "assure · local";
 }
 
 const INSPECT_IDLE_MS = 20000;
@@ -2074,6 +2085,10 @@ async function sendEasy() {
         beginReviewPhase(bubble, metaEl);
         return;
       }
+      if (isAssurePhase(ev)) {
+        beginAssurePhase(bubble, metaEl);
+        return;
+      }
       if (ev.alive) {
         handleStreamAlive(ev, streamCtx());
         return;
@@ -2133,6 +2148,7 @@ async function sendEasy() {
           return;
         }
         if (hid === "review") beginReviewPhase(bubble, metaEl);
+        if (hid === "assure") beginAssurePhase(bubble, metaEl);
         if (hid) streamedHelpers.add(hid);
         showHelperBoards([ev.helper]);
       }
@@ -2259,6 +2275,10 @@ async function send(kind) {
         beginReviewPhase(bubble, metaEl);
         return;
       }
+      if (isAssurePhase(ev)) {
+        beginAssurePhase(bubble, metaEl);
+        return;
+      }
       if (ev.alive) {
         handleStreamAlive(ev, streamCtx());
         return;
@@ -2315,6 +2335,7 @@ async function send(kind) {
           return;
         }
         if (hid === "review") beginReviewPhase(bubble, metaEl);
+        if (hid === "assure") beginAssurePhase(bubble, metaEl);
         if (hid) streamedHelpers.add(hid);
         showHelperBoards([ev.helper]);
       }

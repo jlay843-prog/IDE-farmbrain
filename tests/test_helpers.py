@@ -9,23 +9,29 @@ from forge.helpers import (
     named_files_for_plan,
     parse_plan_files,
     parse_review_board,
+    run_assure_helper,
     run_check_helper,
     run_edit_helpers,
     run_helpers,
     run_plan_helper,
     run_review_helper,
+    scan_pending_diff,
 )
 
 
-def test_helper_catalog_has_plan_review_and_check():
+def test_helper_catalog_has_plan_review_assure_and_check():
     rows = helper_catalog()
     ids = {row["id"] for row in rows}
-    assert ids == {"plan", "review", "check"}
+    assert ids == {"plan", "review", "assure", "check"}
     plan = next(row for row in rows if row["id"] == "plan")
     review = next(row for row in rows if row["id"] == "review")
+    assure = next(row for row in rows if row["id"] == "assure")
     check = next(row for row in rows if row["id"] == "check")
     assert review["enabled"] is True
     assert review["model"] == "empero-35b-a3b:q4km"
+    assert assure["enabled"] is True
+    assert assure["model"] == "local"
+    assert assure["tier"] == "local"
     flash_live = probe_flash_tag() is not None
     assert plan["enabled"] is flash_live
     assert check["enabled"] is flash_live
@@ -233,3 +239,95 @@ def test_run_plan_helper_streams_callbacks(monkeypatch):
     assert board["result"] == "PASS"
     assert "".join(deltas) == "step one"
     assert began and began[0]["phase"] == "plan"
+
+
+CLEAN_DIFF = "--- a/foo.py\n+++ b/foo.py\n@@\n+x = 1\n"
+
+
+def test_run_assure_helper_warns_on_empty_diff():
+    board = run_assure_helper("", "hello")
+    assert board["result"] == "WARN"
+    assert board["helper"] == "assure"
+    assert "No pending diff" in board["lines"][0]["detail"]
+
+
+def test_run_assure_helper_passes_clean_diff():
+    board = run_assure_helper(CLEAN_DIFF, "add x")
+    assert board["result"] == "PASS"
+    assert board["model"] == "local"
+    text = (board.get("board") or "") + " ".join(L["detail"] for L in board["lines"])
+    lowered = text.lower()
+    assert "payload" not in lowered
+    assert "poc" not in lowered
+    assert "how to attack" not in lowered
+    assert "proof of concept" not in lowered
+
+
+def test_run_assure_helper_fails_secret_and_redacts():
+    diff = "--- a/cfg.py\n+++ b/cfg.py\n@@\n+api_key = \"sk-live-farm-secret-99\"\n"
+    board = run_assure_helper(diff, "add key")
+    assert board["result"] == "FAIL"
+    detail = " ".join(L["detail"] for L in board["lines"])
+    assert "sk-live-farm-secret-99" not in detail
+    assert "***" in detail
+    assert "secrets" in {L["label"] for L in board["lines"]}
+
+
+def test_run_assure_helper_warns_on_shell_true():
+    diff = "--- a/run.py\n+++ b/run.py\n@@\n+subprocess.run(cmd, shell=True)\n"
+    board = run_assure_helper(diff, "run cmd")
+    assert board["result"] == "WARN"
+    assert any(L["label"] == "injection" for L in board["lines"])
+
+
+def test_run_assure_helper_fails_private_key_without_material():
+    blob = "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC"
+    diff = f"--- a/key.pem\n+++ b/key.pem\n@@\n+{blob}\n"
+    board = run_assure_helper(diff, "add key")
+    assert board["result"] == "FAIL"
+    text = (board.get("board") or "") + " ".join(L["detail"] for L in board["lines"])
+    assert "MIIEvQIBADAN" not in text
+    assert "private key" in text.lower()
+
+
+def test_scan_pending_diff_ignores_removed_secret_lines():
+    diff = "--- a/cfg.py\n+++ b/cfg.py\n@@\n-api_key = \"sk-live-old-secret-99\"\n+x = 1\n"
+    assert scan_pending_diff(diff) == []
+
+
+def test_run_helpers_skips_assure_without_pending_diff(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        "forge.helpers.run_assure_helper",
+        lambda *args, **kwargs: called.append(True) or {"helper": "assure", "result": "PASS", "lines": [], "board": ""},
+    )
+    boards = run_helpers(["assure"], {"text": "prose only", "changes": []}, "hello")
+    assert not called
+    assert boards[0]["helper"] == "assure"
+    assert "Skipped" in boards[0]["lines"][0]["detail"]
+
+
+def test_run_helpers_runs_assure_after_review(monkeypatch):
+    order = []
+
+    def fake_review(*_args, **_kwargs):
+        order.append("review")
+        return {"helper": "review", "result": "PASS", "lines": [], "board": ""}
+
+    def fake_assure(*_args, **_kwargs):
+        order.append("assure")
+        return {"helper": "assure", "result": "PASS", "lines": [], "board": ""}
+
+    monkeypatch.setattr("forge.helpers.run_review_helper", fake_review)
+    monkeypatch.setattr("forge.helpers.run_assure_helper", fake_assure)
+    phases = []
+    boards = run_helpers(
+        ["check", "assure", "review"],
+        {"text": CLEAN_DIFF, "changes": [{"path": "foo.py"}]},
+        "hello",
+        skip_flash_check=True,
+        on_phase=lambda payload: phases.append(payload.get("phase")),
+    )
+    assert order == ["review", "assure"]
+    assert [b["helper"] for b in boards] == ["review", "assure", "check"]
+    assert phases == ["review", "assure"]

@@ -13,6 +13,13 @@ def test_parser_has_week1_commands():
         assert name in names
 
 
+def test_edit_helper_choices_include_assure():
+    parser = build_parser()
+    edit = parser._subparsers._group_actions[0].choices["edit"]
+    helper_action = next(a for a in edit._actions if "--helper" in (a.option_strings or []))
+    assert set(helper_action.choices) == {"plan", "review", "assure", "check"}
+
+
 def test_no_args_exits_zero(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("FORGE_DATA", str(tmp_path / "data"))
     monkeypatch.setattr(
