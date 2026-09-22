@@ -40,7 +40,9 @@ _DUMMY_SECRET_VALUES = {
     "your-token-here",
 }
 _SECRET_ASSIGN_RE = re.compile(
-    r"(?i)\b(api[_-]?key|access[_-]?key|auth[_-]?token|password|passwd|private[_-]?key|secret|token)\b"
+    r"(?i)\b(api[_-]?key|access[_-]?key|auth[_-]?token|password|passwd|private[_-]?key|secret|token|"
+    r"farm_operator_token|farm_local_key|forge_farm_token|x-farm-local-key|"
+    r"telegram_bot_token|forge_telegram_token)\b"
     r".{0,40}[=:].{0,12}(['\"])([^'\"]{8,})\2"
 )
 _AWS_KEY_RE = re.compile(r"AKIA[0-9A-Z]{16}")
@@ -54,6 +56,28 @@ _VERIFY_FALSE_RE = re.compile(r"verify\s*=\s*False|CERT_NONE")
 _STOP_FORGE_RE = re.compile(r"(?i)(?:Stop-Process\b.*\bForge\b|taskkill\b.*\bForge\.exe\b)")
 _BIND_ALL_RE = re.compile(r"0\.0\.0\.0")
 _TRAVERSAL_RE = re.compile(r"(?:^|[/\\])\.\.(?:[/\\]|$)")
+_EMPERO_ON_CUDA_RE = re.compile(
+    r"(?i)(?:EXPECT_CUDA\s*=\s*['\"][^'\"]*empero"
+    r"|empero-35b[^\n]{0,60}(?::11434|\bcuda\b)"
+    r"|(?:--model|-m|--tag)\s+['\"]?empero[^\n]{0,40}(?:11434|\bcuda\b)"
+    r"|tier\s*=\s*['\"]cuda['\"][^\n]{0,40}empero"
+    r"|empero[^\n]{0,40}tier\s*=\s*['\"]cuda['\"])"
+)
+_VAST_BYPASS_RE = re.compile(r"(?i)(?:vast_active|blocked_for_vast)\s*=\s*False")
+_QC_BYPASS_RE = re.compile(
+    r"(?i)(?:is_protected_workspace\s*=\s*(?:False|lambda[^\n]{0,40}False)"
+    r"|(?:skip|bypass|ignore)\W{0,16}(?:qc|confirm_protected|i-understand-qc))"
+)
+_OLLAMA_FORWARD_RE = re.compile(
+    r"(?i)(?:ssh\s+[^\n]*-L[^\n]*(?:11434|11435|11437)|port.?forward[^\n]*(?:11434|11435|11437))"
+)
+_HTML_JSON_ACCEPT_RE = re.compile(
+    r"(?i)(?:aria|:5173|lumen|:8100|:5080)[^\n]{0,80}Accept['\"]?\s*[:=]\s*['\"]application/json"
+    r"|Accept['\"]?\s*[:=]\s*['\"]application/json[^\n]{0,80}(?:aria|:5173|lumen|:8100|:5080)"
+)
+_SECRET_ECHO_RE = re.compile(
+    r"(?i)(?:print|echo|log)\s*\([^\n]{0,80}(?:farm_operator_token|forge_telegram_token|farm_local_key)"
+)
 
 PLAN_SYSTEM = (
     "You are the Forge planning model on tower 5090 flash (qwen3.8-flash-next). "
@@ -459,6 +483,16 @@ def _diff_new_paths(diff: str) -> list[str]:
     return paths
 
 
+def _is_farm_check_report_line(line: str) -> bool:
+    """Farm-check boards mention Empero-on-CUDA as a detection, not a placement."""
+    lowered = line.lower()
+    if "empero" not in lowered:
+        return False
+    if any(token in lowered for token in ("not on cuda", "is on cuda", "must not", "must never", "never load")):
+        return True
+    return "cuda_run" in lowered and "in n.lower()" in lowered
+
+
 def scan_pending_diff(diff: str) -> list[dict[str, str]]:
     """Defensive findings on added lines only. Never returns exploits or payloads."""
     findings: list[dict[str, str]] = []
@@ -505,6 +539,18 @@ def scan_pending_diff(diff: str) -> list[dict[str, str]]:
             add("WARN", "bind", f"{loc}: listen on all interfaces (Forge is loopback-only)")
         if _TRAVERSAL_RE.search(line.replace("\\", "/")):
             add("FAIL", "path", f"{loc}: parent-directory path in added line")
+        if _EMPERO_ON_CUDA_RE.search(line) and not _is_farm_check_report_line(line):
+            add("FAIL", "placement", f"{loc}: Empero must stay on AMD :11437, not CUDA")
+        if _VAST_BYPASS_RE.search(line):
+            add("FAIL", "burst", f"{loc}: burst/5090 must stay blocked while Vast is live")
+        if _QC_BYPASS_RE.search(line):
+            add("FAIL", "qc", f"{loc}: farm-brain apply still needs the QC confirm")
+        if _OLLAMA_FORWARD_RE.search(line):
+            add("WARN", "forward", f"{loc}: do not port-forward Ollama off the farm LAN")
+        if _HTML_JSON_ACCEPT_RE.search(line):
+            add("WARN", "probe", f"{loc}: HTML farm apps need Accept */*, not application/json")
+        if _SECRET_ECHO_RE.search(line):
+            add("FAIL", "secrets", f"{loc}: farm secret path printed")
     return findings
 
 

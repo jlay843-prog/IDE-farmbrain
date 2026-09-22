@@ -4,6 +4,7 @@ Short trail for packaged builds Jeff can tell apart.
 
 | Version | Notes |
 |---------|--------|
+| **1.3.14** | **Assure from farm-check** — local scan also flags Empero-on-CUDA placement (not the farm-check detection line), Vast/burst bypass, farm-brain QC skip, Ollama port-forward, HTML farm probes using Accept JSON, and hardcoded farm/telegram secret literals (redacted). Still Ask-only; no exploits. |
 | **1.3.13** | **Assure helper** — optional local defensive scan of the pending unified diff (Ask-only PASS/FAIL/WARN board). Looks at added lines only: secrets (redacted), shell/eval/pickle, path escape, TLS verify off, Stop-Process Forge, bind-all. Never writes exploits or payloads. Sequential after Review, before Check. Desk tick + CLI `--helper assure`. No GPU. |
 | **1.3.12** | **Plan → Code handoff** — flash Plan replies with implementable JSON (`goal`, `files[]`, `edits[]`). After a PASS plan, lead Edit on coder-next gets those existing paths as named files and `require_diff`: if inspect ends with no `---`/`+++`, one extra no-tools turn asks for a unified diff. Check skip on empty pending stays WARN (correct). Live flash tag unchanged (`qwen3.8-flash-next`). |
 | **1.3.11** | **Plan evo-ssh** — flash chat no longer embeds the Plan JSON as a `python3 -c` base64 blob (that one-liner split on Windows/OpenSSH and SyntaxError'd). Payload goes on SSH stdin; remote `-c` stays tiny. Helper board SUMMARY counts WARN lines instead of printing zeros. Unsigned `dist-win` shipped; shortcuts target `dist\win-unpacked\Forge.exe`. |

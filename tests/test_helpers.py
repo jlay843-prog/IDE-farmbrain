@@ -331,3 +331,60 @@ def test_run_helpers_runs_assure_after_review(monkeypatch):
     assert order == ["review", "assure"]
     assert [b["helper"] for b in boards] == ["review", "assure", "check"]
     assert phases == ["review", "assure"]
+
+
+def test_assure_keeps_farm_check_empero_detection_clean():
+    diff = (
+        "--- a/src/forge/checks.py\n+++ b/src/forge/checks.py\n@@\n"
+        "+        lines.append(_line(False, \"empero_placement\", \"FAIL Empero is on CUDA — move to AMD :11437\"))\n"
+    )
+    assert scan_pending_diff(diff) == []
+
+
+def test_assure_fails_empero_placed_on_cuda():
+    diff = "--- a/src/forge/checks.py\n+++ b/src/forge/checks.py\n@@\n+EXPECT_CUDA = \"empero-35b-a3b:q4km\"\n"
+    board = run_assure_helper(diff, "move empero")
+    assert board["result"] == "FAIL"
+    assert any(L["label"] == "placement" for L in board["lines"])
+
+
+def test_assure_fails_vast_burst_bypass():
+    diff = "--- a/src/forge/session.py\n+++ b/src/forge/session.py\n@@\n+    vast_active = False\n"
+    board = run_assure_helper(diff, "unblock burst")
+    assert board["result"] == "FAIL"
+    assert any(L["label"] == "burst" for L in board["lines"])
+
+
+def test_assure_fails_farm_brain_qc_bypass():
+    diff = "--- a/src/forge/serve.py\n+++ b/src/forge/serve.py\n@@\n+    is_protected_workspace = False\n"
+    board = run_assure_helper(diff, "skip qc")
+    assert board["result"] == "FAIL"
+    assert any(L["label"] == "qc" for L in board["lines"])
+
+
+def test_assure_warns_ollama_port_forward():
+    diff = "--- a/scripts/tunnel.ps1\n+++ b/scripts/tunnel.ps1\n@@\n+ssh -L 0.0.0.0:11434:127.0.0.1:11434 evo\n"
+    board = run_assure_helper(diff, "forward ollama")
+    assert board["result"] in {"FAIL", "WARN"}
+    assert any(L["label"] == "forward" for L in board["lines"])
+
+
+def test_assure_warns_html_farm_accept_json():
+    diff = "--- a/src/forge/checks.py\n+++ b/src/forge/checks.py\n@@\n+    headers = {\"Accept\": \"application/json\"}  # aria :5173\n"
+    board = run_assure_helper(diff, "fix aria")
+    assert board["result"] == "WARN"
+    assert any(L["label"] == "probe" for L in board["lines"])
+
+
+def test_assure_fails_farm_header_literal_and_redacts():
+    diff = "--- a/src/forge/httputil.py\n+++ b/src/forge/httputil.py\n@@\n+    headers[\"X-Farm-Local-Key\"] = \"farm-op-live-secret-99\"\n"
+    board = run_assure_helper(diff, "hardcode token")
+    assert board["result"] == "FAIL"
+    detail = " ".join(L["detail"] for L in board["lines"])
+    assert "farm-op-live-secret-99" not in detail
+    assert "***" in detail
+
+
+def test_assure_ignores_farm_header_variable():
+    diff = "--- a/src/forge/httputil.py\n+++ b/src/forge/httputil.py\n@@\n+    headers[\"X-Farm-Local-Key\"] = token\n"
+    assert scan_pending_diff(diff) == []
