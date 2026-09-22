@@ -287,6 +287,19 @@ To call a tool without native function-calling, emit:
 <tool name="read">{"path": "src/file.py"}</tool>
 """
 
+
+def edit_system_text(easy: bool = False) -> str:
+    """Edit system prompt plus GATE.md when that file ships beside this module."""
+    base = f"{EASY_EDIT_PREFIX}{EDIT_SYSTEM}" if easy else EDIT_SYSTEM
+    path = Path(__file__).with_name("GATE.md")
+    try:
+        extra = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return base
+    if not extra:
+        return base
+    return base + "\n\n" + extra
+
 EASY_EDIT_PREFIX = """Easy mode: Jeff reviews your unified diff and clicks Accept once to write all changes. After Accept he can Open the last created or changed file in its OS app.
 """
 

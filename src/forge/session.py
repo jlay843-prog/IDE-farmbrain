@@ -10,10 +10,9 @@ from forge.context import format_context, read_files
 from forge.edit import (
     ASK_SYSTEM,
     EASY_ASK_SYSTEM,
-    EASY_EDIT_PREFIX,
-    EDIT_SYSTEM,
     apply_diff,
     change_list,
+    edit_system_text,
     hunk_list,
 )
 from forge.llm import chat, iter_chat
@@ -321,7 +320,7 @@ def run_edit(
             "workspace is farm-brain; apply is blocked unless you pass --i-understand-qc"
         )
     named = read_files(root, files or []) if files else []
-    system = f"{EASY_EDIT_PREFIX}{EDIT_SYSTEM}" if easy else EDIT_SYSTEM
+    system = edit_system_text(easy)
     reply = _generate(
         sess,
         system,

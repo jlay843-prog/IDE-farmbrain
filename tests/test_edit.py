@@ -67,6 +67,14 @@ def test_easy_ask_system_capabilities():
     assert "browser automation" in lower
 
 
+def test_edit_system_text_loads_gate_rules():
+    from forge.edit import edit_system_text
+
+    text = edit_system_text(False)
+    assert "every Edit, in every workspace" in text
+    assert "Do not invent signature checks" in text
+
+
 def test_edit_system_new_files_and_no_shell():
     lower = EDIT_SYSTEM.lower()
     assert "no shell" in lower

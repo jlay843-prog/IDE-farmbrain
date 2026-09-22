@@ -2,7 +2,7 @@
 
 plan:   5090 flash plans first (Ask-only, no files) then coder-next edits.
 review: Empero on AMD reviews the pending diff (Ask-only PASS/FAIL/WARN board).
-assure: local defensive scan of the pending diff (Ask-only; no exploits/payloads).
+assure: GATE.md scan of added lines (Ask-only; no apply, no exploits).
 check:  5090 flash check after edit — skipped when plan already used the 5090.
 """
 
@@ -40,43 +40,42 @@ _DUMMY_SECRET_VALUES = {
     "your-token-here",
 }
 _SECRET_ASSIGN_RE = re.compile(
-    r"(?i)\b(api[_-]?key|access[_-]?key|auth[_-]?token|password|passwd|private[_-]?key|secret|token|"
-    r"farm_operator_token|farm_local_key|forge_farm_token|x-farm-local-key|"
-    r"telegram_bot_token|forge_telegram_token)\b"
+    r"(?i)\b(api[_-]?key|access[_-]?key|auth[_-]?token|password|passwd|private[_-]?key|secret|token)\b"
     r".{0,40}[=:].{0,12}(['\"])([^'\"]{8,})\2"
 )
 _AWS_KEY_RE = re.compile(r"AKIA[0-9A-Z]{16}")
 _PEM_HEADER_RE = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
-_TELEGRAM_TOKEN_RE = re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{30,}\b")
-_SHELL_TRUE_RE = re.compile(r"shell\s*=\s*True")
-_OS_SYSTEM_RE = re.compile(r"\bos\.system\s*\(")
 _EVAL_EXEC_RE = re.compile(r"\b(?:eval|exec)\s*\(")
-_PICKLE_RE = re.compile(r"\bpickle\.loads?\s*\(")
-_VERIFY_FALSE_RE = re.compile(r"verify\s*=\s*False|CERT_NONE")
-_STOP_FORGE_RE = re.compile(r"(?i)(?:Stop-Process\b.*\bForge\b|taskkill\b.*\bForge\.exe\b)")
-_BIND_ALL_RE = re.compile(r"0\.0\.0\.0")
 _TRAVERSAL_RE = re.compile(r"(?:^|[/\\])\.\.(?:[/\\]|$)")
-_EMPERO_ON_CUDA_RE = re.compile(
-    r"(?i)(?:EXPECT_CUDA\s*=\s*['\"][^'\"]*empero"
-    r"|empero-35b[^\n]{0,60}(?::11434|\bcuda\b)"
-    r"|(?:--model|-m|--tag)\s+['\"]?empero[^\n]{0,40}(?:11434|\bcuda\b)"
-    r"|tier\s*=\s*['\"]cuda['\"][^\n]{0,40}empero"
-    r"|empero[^\n]{0,40}tier\s*=\s*['\"]cuda['\"])"
+_BIND_PUBLIC_RE = re.compile(r"0\.0\.0\.0")
+_STUB_VERIFIER_RE = re.compile(
+    r"(?i)return\s+true\b.{0,80}(?:placeholder|for now|assume|not a control)"
+    r"|(?:placeholder|for now|assume).{0,80}return\s+true\b"
+    r"|(?:function|def|const)\s+\w*(?:verify|validat|authent)\w*[^\n]{0,120}return\s+true\b"
 )
-_VAST_BYPASS_RE = re.compile(r"(?i)(?:vast_active|blocked_for_vast)\s*=\s*False")
-_QC_BYPASS_RE = re.compile(
-    r"(?i)(?:is_protected_workspace\s*=\s*(?:False|lambda[^\n]{0,40}False)"
-    r"|(?:skip|bypass|ignore)\W{0,16}(?:qc|confirm_protected|i-understand-qc))"
+_HEADER_IS_PROOF_RE = re.compile(
+    r"(?i)header is proof|no further validation|verification succeeds if.{0,40}header"
+    r"|assume .{0,60}(?:header|verif)"
 )
-_OLLAMA_FORWARD_RE = re.compile(
-    r"(?i)(?:ssh\s+[^\n]*-L[^\n]*(?:11434|11435|11437)|port.?forward[^\n]*(?:11434|11435|11437))"
+_INVENTED_CRYPTO_RE = re.compile(
+    r"(?i)invent.{0,40}(?:signature|cryptograph|verifier)"
+    r"|(?:stub|placeholder|todo|fake)\s+(?:signature|hmac|crypto|verifier)"
 )
-_HTML_JSON_ACCEPT_RE = re.compile(
-    r"(?i)(?:aria|:5173|lumen|:8100|:5080)[^\n]{0,80}Accept['\"]?\s*[:=]\s*['\"]application/json"
-    r"|Accept['\"]?\s*[:=]\s*['\"]application/json[^\n]{0,80}(?:aria|:5173|lumen|:8100|:5080)"
+_DEPLOY_RESTART_RE = re.compile(
+    r"(?i)(?:systemctl\s+restart|Restart-Service\b|kubectl\s+apply|docker\s+compose\s+up\b|deploy\s+to\s+prod)"
 )
-_SECRET_ECHO_RE = re.compile(
-    r"(?i)(?:print|echo|log)\s*\([^\n]{0,80}(?:farm_operator_token|forge_telegram_token|farm_local_key)"
+_BLOCK_HEALTH_RE = re.compile(
+    r"(?i)(?:deny|block|reject|forbid).{0,48}(?:/health\b|127\.0\.0\.1)"
+    r"|(?:/health\b|127\.0\.0\.1).{0,48}(?:deny|block|reject|forbid)"
+)
+_GATE_PATH = Path(__file__).with_name("GATE.md")
+_ASSURE_NOTE = (
+    "Ask-only. Added lines only. GATE.md — not applied. No exploits. "
+    "After Accept, smoke the program's existing health URL; the coder does not call the network."
+)
+_ASSURE_PASS = (
+    "No stub verifier, header-as-proof, repeated line, secret, dynamic eval, "
+    "or path that leaves the workspace"
 )
 
 PLAN_SYSTEM = (
@@ -120,12 +119,12 @@ def helper_catalog() -> list[dict[str, Any]]:
     }
     assure = {
         "id": "assure",
-        "label": "Assure (defensive)",
+        "label": "Assure (GATE.md)",
         "model": ASSURE_MODEL,
         "tier": ASSURE_TIER,
         "enabled": True,
         "status": "ready",
-        "message": "",
+        "message": "added lines only — GATE.md",
     }
     check = {
         "id": "check",
@@ -483,18 +482,21 @@ def _diff_new_paths(diff: str) -> list[str]:
     return paths
 
 
-def _is_farm_check_report_line(line: str) -> bool:
-    """Farm-check boards mention Empero-on-CUDA as a detection, not a placement."""
-    lowered = line.lower()
-    if "empero" not in lowered:
-        return False
-    if any(token in lowered for token in ("not on cuda", "is on cuda", "must not", "must never", "never load")):
-        return True
-    return "cuda_run" in lowered and "in n.lower()" in lowered
+def load_gate_text() -> str:
+    """GATE.md beside this module — SSOT for Edit prompts and Assure rules."""
+    try:
+        return _GATE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _leaves_workspace(path: str) -> bool:
+    rel = (path or "").replace("\\", "/").strip()
+    return bool(_TRAVERSAL_RE.search(rel) or rel.startswith("/") or (len(rel) >= 2 and rel[1] == ":"))
 
 
 def scan_pending_diff(diff: str) -> list[dict[str, str]]:
-    """Defensive findings on added lines only. Never returns exploits or payloads."""
+    """GATE.md: added lines only. Never returns exploits or payloads."""
     findings: list[dict[str, str]] = []
     seen: set[tuple[str, str, str]] = set()
 
@@ -506,51 +508,48 @@ def scan_pending_diff(diff: str) -> list[dict[str, str]]:
         findings.append(_line(mark, label, detail))
 
     for path in _diff_new_paths(diff):
-        if _TRAVERSAL_RE.search(path.replace("\\", "/")) or path.startswith("/") or (len(path) >= 2 and path[1] == ":"):
-            add("FAIL", "path", f"{path}: new path leaves the workspace")
+        if _leaves_workspace(path):
+            add("FAIL", "path", f"{path}: path that leaves the workspace")
 
     for path, line in _added_diff_lines(diff):
         loc = path or "diff"
         if _PEM_HEADER_RE.search(line):
-            add("FAIL", "secrets", f"{loc}: private key material in added line")
+            add("FAIL", "secrets", f"{loc}: a secret (private key, redacted)")
             continue
         aws = _AWS_KEY_RE.search(line)
         if aws:
-            add("FAIL", "secrets", f"{loc}: cloud access key {_redact_secret(aws.group(0))}")
-        tg = _TELEGRAM_TOKEN_RE.search(line)
-        if tg:
-            add("FAIL", "secrets", f"{loc}: bot token {_redact_secret(tg.group(0))}")
+            add("FAIL", "secrets", f"{loc}: a secret {_redact_secret(aws.group(0))}")
         assign = _SECRET_ASSIGN_RE.search(line)
         if assign:
             value = assign.group(3)
             if value.strip().lower() not in _DUMMY_SECRET_VALUES:
-                add("FAIL", "secrets", f"{loc}: {assign.group(1)}={_redact_secret(value)}")
-        if _SHELL_TRUE_RE.search(line) or _OS_SYSTEM_RE.search(line):
-            add("WARN", "injection", f"{loc}: shell command from untrusted input")
+                add("FAIL", "secrets", f"{loc}: a secret {assign.group(1)}={_redact_secret(value)}")
         if _EVAL_EXEC_RE.search(line):
-            add("WARN", "injection", f"{loc}: dynamic eval/exec")
-        if _PICKLE_RE.search(line):
-            add("WARN", "injection", f"{loc}: pickle load of untrusted bytes")
-        if _VERIFY_FALSE_RE.search(line):
-            add("WARN", "tls", f"{loc}: TLS verification disabled")
-        if _STOP_FORGE_RE.search(line):
-            add("WARN", "process", f"{loc}: stops the live Forge desk")
-        if _BIND_ALL_RE.search(line):
-            add("WARN", "bind", f"{loc}: listen on all interfaces (Forge is loopback-only)")
+            add("FAIL", "eval", f"{loc}: dynamic eval")
         if _TRAVERSAL_RE.search(line.replace("\\", "/")):
-            add("FAIL", "path", f"{loc}: parent-directory path in added line")
-        if _EMPERO_ON_CUDA_RE.search(line) and not _is_farm_check_report_line(line):
-            add("FAIL", "placement", f"{loc}: Empero must stay on AMD :11437, not CUDA")
-        if _VAST_BYPASS_RE.search(line):
-            add("FAIL", "burst", f"{loc}: burst/5090 must stay blocked while Vast is live")
-        if _QC_BYPASS_RE.search(line):
-            add("FAIL", "qc", f"{loc}: farm-brain apply still needs the QC confirm")
-        if _OLLAMA_FORWARD_RE.search(line):
-            add("WARN", "forward", f"{loc}: do not port-forward Ollama off the farm LAN")
-        if _HTML_JSON_ACCEPT_RE.search(line):
-            add("WARN", "probe", f"{loc}: HTML farm apps need Accept */*, not application/json")
-        if _SECRET_ECHO_RE.search(line):
-            add("FAIL", "secrets", f"{loc}: farm secret path printed")
+            add("FAIL", "path", f"{loc}: path that leaves the workspace")
+        if _STUB_VERIFIER_RE.search(line):
+            add("FAIL", "stub", f"{loc}: stub verifier")
+        if _HEADER_IS_PROOF_RE.search(line):
+            add("FAIL", "proof", f"{loc}: a comment that a header is proof")
+        if _INVENTED_CRYPTO_RE.search(line):
+            add("FAIL", "crypto", f"{loc}: invented signature check, cryptography, or verifier")
+        if _BIND_PUBLIC_RE.search(line):
+            add("FAIL", "bind", f"{loc}: bind a new public address")
+        if _DEPLOY_RESTART_RE.search(line):
+            add("FAIL", "deploy", f"{loc}: deploy or restart a service")
+        if _BLOCK_HEALTH_RE.search(line):
+            add("FAIL", "health", f"{loc}: existing health route or 127.0.0.1 must stay open")
+    repeats: dict[str, int] = {}
+    for _path, line in _added_diff_lines(diff):
+        text = line.strip()
+        if len(text) < 24:
+            continue
+        repeats[text] = repeats.get(text, 0) + 1
+    for _text, count in repeats.items():
+        if count >= 2:
+            add("FAIL", "repeat", f"same added line repeated {count} times")
+            break
     return findings
 
 
@@ -566,7 +565,7 @@ def run_assure_helper(
         board = _board(
             "assure",
             [_line("WARN", "assure", "No pending diff to assure")],
-            note="Ask-only defensive scan — not applied. No exploits.",
+            note=_ASSURE_NOTE,
         )
         board["model"] = ASSURE_MODEL
         board["tier"] = ASSURE_TIER
@@ -575,14 +574,14 @@ def run_assure_helper(
     extra_paths = [str(item) for item in (files or []) if item]
     extra_paths.extend(str(c.get("path") or "") for c in (changes or []) if c.get("path"))
     for path in extra_paths:
-        if _TRAVERSAL_RE.search(path.replace("\\", "/")) or path.startswith("/") or (len(path) >= 2 and path[1] == ":"):
-            lines.append(_line("FAIL", "path", f"{path}: named path leaves the workspace"))
+        if _leaves_workspace(path):
+            lines.append(_line("FAIL", "path", f"{path}: path that leaves the workspace"))
     if not lines:
-        lines = [_line("PASS", "assure", "No defensive findings on added lines")]
+        lines = [_line("PASS", "assure", _ASSURE_PASS)]
     board = _board(
         "assure",
         lines,
-        note="Ask-only defensive scan of pending diff — not applied. No exploits.",
+        note=_ASSURE_NOTE,
     )
     board["model"] = ASSURE_MODEL
     board["backend"] = "local"

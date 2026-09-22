@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from forge.flash import probe_flash_tag
 from forge.helpers import (
     PLAN_IMPLEMENT,
@@ -15,6 +17,7 @@ from forge.helpers import (
     run_helpers,
     run_plan_helper,
     run_review_helper,
+    load_gate_text,
     scan_pending_diff,
 )
 
@@ -32,6 +35,7 @@ def test_helper_catalog_has_plan_review_assure_and_check():
     assert assure["enabled"] is True
     assert assure["model"] == "local"
     assert assure["tier"] == "local"
+    assert "GATE.md" in assure["label"]
     flash_live = probe_flash_tag() is not None
     assert plan["enabled"] is flash_live
     assert check["enabled"] is flash_live
@@ -273,11 +277,11 @@ def test_run_assure_helper_fails_secret_and_redacts():
     assert "secrets" in {L["label"] for L in board["lines"]}
 
 
-def test_run_assure_helper_warns_on_shell_true():
-    diff = "--- a/run.py\n+++ b/run.py\n@@\n+subprocess.run(cmd, shell=True)\n"
-    board = run_assure_helper(diff, "run cmd")
-    assert board["result"] == "WARN"
-    assert any(L["label"] == "injection" for L in board["lines"])
+def test_run_assure_helper_fails_dynamic_eval():
+    diff = "--- a/run.py\n+++ b/run.py\n@@\n+value = eval(user_input)\n"
+    board = run_assure_helper(diff, "eval input")
+    assert board["result"] == "FAIL"
+    assert any(L["label"] == "eval" and "dynamic eval" in L["detail"] for L in board["lines"])
 
 
 def test_run_assure_helper_fails_private_key_without_material():
@@ -288,6 +292,20 @@ def test_run_assure_helper_fails_private_key_without_material():
     text = (board.get("board") or "") + " ".join(L["detail"] for L in board["lines"])
     assert "MIIEvQIBADAN" not in text
     assert "private key" in text.lower()
+
+
+def test_scan_pending_diff_flags_stub_verifier_and_repeats():
+    stub = (
+        "--- a/auth.ts\n+++ b/auth.ts\n@@\n"
+        "+  // For now, assume verification succeeds if the header is present\n"
+        "+  return true;\n"
+    )
+    lines = scan_pending_diff(stub)
+    assert any(row["label"] == "stub" or row["label"] == "proof" for row in lines)
+    repeated = "+  if (process.env.REQUIRE_ACCESS === \"true\" && fromTrustedEdge(req)) {\n"
+    diff = "--- a/mw.ts\n+++ b/mw.ts\n@@\n" + repeated * 2
+    again = scan_pending_diff(diff)
+    assert any(row["label"] == "repeat" for row in again)
 
 
 def test_scan_pending_diff_ignores_removed_secret_lines():
@@ -333,58 +351,43 @@ def test_run_helpers_runs_assure_after_review(monkeypatch):
     assert phases == ["review", "assure"]
 
 
-def test_assure_keeps_farm_check_empero_detection_clean():
+def test_assure_ssot_is_gate_md():
+    gate = load_gate_text()
+    assert "every Edit, in every workspace" in gate
+    assert "It is not a checklist of Lone Tree Acres apps" in gate
+    assert "stub verifier" in gate
+    assert "header is proof" in gate
+    src = Path(__file__).resolve().parents[1] / "src" / "forge" / "helpers.py"
+    text = src.read_text(encoding="utf-8")
+    assert "GATE.md" in text
+    assert "Empero must stay on AMD" not in text
+    assert "HTML farm apps" not in text
+    assert "port-forward Ollama" not in text
+    assert "farm-brain apply still needs" not in text
+
+
+def test_assure_ignores_farm_check_handoff_copy():
     diff = (
-        "--- a/src/forge/checks.py\n+++ b/src/forge/checks.py\n@@\n"
-        "+        lines.append(_line(False, \"empero_placement\", \"FAIL Empero is on CUDA — move to AMD :11437\"))\n"
+        "--- a/notes.md\n+++ b/notes.md\n@@\n"
+        "+Empero must never load on the 5070 Ti. ARIA UI uses Accept */*.\n"
+        "+forge check llm reports Empero on CUDA as FAIL.\n"
     )
     assert scan_pending_diff(diff) == []
 
 
-def test_assure_fails_empero_placed_on_cuda():
-    diff = "--- a/src/forge/checks.py\n+++ b/src/forge/checks.py\n@@\n+EXPECT_CUDA = \"empero-35b-a3b:q4km\"\n"
-    board = run_assure_helper(diff, "move empero")
+def test_assure_fails_public_bind_and_health_block():
+    bind = "--- a/app.py\n+++ b/app.py\n@@\n+app.run(host=\"0.0.0.0\", port=8080)\n"
+    board = run_assure_helper(bind, "listen")
     assert board["result"] == "FAIL"
-    assert any(L["label"] == "placement" for L in board["lines"])
+    assert any(L["label"] == "bind" for L in board["lines"])
+    health = "--- a/mw.py\n+++ b/mw.py\n@@\n+deny 127.0.0.1 and /health\n"
+    board2 = run_assure_helper(health, "lock loopback")
+    assert any(L["label"] == "health" for L in board2["lines"])
 
 
-def test_assure_fails_vast_burst_bypass():
-    diff = "--- a/src/forge/session.py\n+++ b/src/forge/session.py\n@@\n+    vast_active = False\n"
-    board = run_assure_helper(diff, "unblock burst")
-    assert board["result"] == "FAIL"
-    assert any(L["label"] == "burst" for L in board["lines"])
-
-
-def test_assure_fails_farm_brain_qc_bypass():
-    diff = "--- a/src/forge/serve.py\n+++ b/src/forge/serve.py\n@@\n+    is_protected_workspace = False\n"
-    board = run_assure_helper(diff, "skip qc")
-    assert board["result"] == "FAIL"
-    assert any(L["label"] == "qc" for L in board["lines"])
-
-
-def test_assure_warns_ollama_port_forward():
-    diff = "--- a/scripts/tunnel.ps1\n+++ b/scripts/tunnel.ps1\n@@\n+ssh -L 0.0.0.0:11434:127.0.0.1:11434 evo\n"
-    board = run_assure_helper(diff, "forward ollama")
-    assert board["result"] in {"FAIL", "WARN"}
-    assert any(L["label"] == "forward" for L in board["lines"])
-
-
-def test_assure_warns_html_farm_accept_json():
-    diff = "--- a/src/forge/checks.py\n+++ b/src/forge/checks.py\n@@\n+    headers = {\"Accept\": \"application/json\"}  # aria :5173\n"
-    board = run_assure_helper(diff, "fix aria")
-    assert board["result"] == "WARN"
-    assert any(L["label"] == "probe" for L in board["lines"])
-
-
-def test_assure_fails_farm_header_literal_and_redacts():
-    diff = "--- a/src/forge/httputil.py\n+++ b/src/forge/httputil.py\n@@\n+    headers[\"X-Farm-Local-Key\"] = \"farm-op-live-secret-99\"\n"
-    board = run_assure_helper(diff, "hardcode token")
-    assert board["result"] == "FAIL"
-    detail = " ".join(L["detail"] for L in board["lines"])
-    assert "farm-op-live-secret-99" not in detail
-    assert "***" in detail
-
-
-def test_assure_ignores_farm_header_variable():
-    diff = "--- a/src/forge/httputil.py\n+++ b/src/forge/httputil.py\n@@\n+    headers[\"X-Farm-Local-Key\"] = token\n"
-    assert scan_pending_diff(diff) == []
+def test_assure_board_uses_gate_copy():
+    board = run_assure_helper(CLEAN_DIFF, "add x")
+    assert board["result"] == "PASS"
+    assert "GATE.md" in board["note"]
+    assert "stub verifier" in board["lines"][0]["detail"]
+    assert "invented status" not in (board.get("board") or "").lower()

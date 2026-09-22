@@ -2,7 +2,7 @@
 
 Local Qwen coding desk for this farm LAN. **CLI is the product.** The Windows window is a thin visual shell around it.
 
-Code stays on **EVO AMD `:11437` / `qwen3-coder-next:latest`**. Chat can use **EVO CUDA `:11434` / `qwen3.8:27b`**. The tower 5090 is burst-only and **blocked while Vast is live**. Do not port-forward Ollama. Optional **Helpers** after Edit: **Review** (Empero on AMD), **Assure** (local defensive scan of the pending diff — no exploits), and **Check** (5090 flash when pulled).
+Code stays on **EVO AMD `:11437` / `qwen3-coder-next:latest`**. Chat can use **EVO CUDA `:11434` / `qwen3.8:27b`**. The tower 5090 is burst-only and **blocked while Vast is live**. Do not port-forward Ollama. Optional **Helpers** after Edit: **Review** (Empero on AMD), **Assure** (`GATE.md` added-line scan — Ask-only, no exploits), and **Check** (5090 flash when pulled).
 
 Sibling to Aether, Lumen, Farm Brain, and AI-PM — not inside `lumen-lab-twin`.
 

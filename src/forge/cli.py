@@ -690,7 +690,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         choices=["plan", "review", "assure", "check"],
-        help="optional helpers: plan=5090 flash first; review=Empero after diff; assure=local defensive scan; check=5090 flash after diff",
+        help="optional helpers: plan=5090 flash first; review=Empero after diff; assure=GATE.md added-line scan; check=5090 flash after diff",
     )
     p.set_defaults(func=cmd_edit)
 
